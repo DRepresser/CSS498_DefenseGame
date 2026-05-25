@@ -1,31 +1,18 @@
-# Tactical Grid-Defense Game
+# Tactical Grid-Defense
+High-fidelity tower defense built with MonoGame on .NET 8.0.
 
-A deep, tactical tower defense game built with C# and MonoGame on .NET 8.0.
+## Overview
+- **Visuals:** Pure PNG assets at unified 1.25x scale. Custom 5x7 bitmapped font.
+- **Resolution:** 960x1060 virtual res (720x795 window) with letterboxed scaling.
+- **Grid:** 20x20 layout (48px cells) with randomized hazards (Volcanic, Corrosive, Obstacles).
 
-## Core Features
-- **Dynamic Pathfinding:** Real-time A* navigation with hazard-weighted costs and path-lock anti-juggling mechanics.
-- **Logistics & Infrastructure:** 
-  - **Power Grid:** Connect units to the Core or Power Plants to avoid severe regeneration penalties.
-  - **Logistics Strain:** Stamina costs scale with army size; negated by building adjacent to the Core or Power Plants.
-- **Advanced Thermal System:** Non-linear stamina consumption with exponential heat scaling, environmental heat soak, and natural recovery during overheat.
-- **Branching Progression:** Level up nodes to Rank 2 to unlock specialized variants (Cryo for area control, Armor Piercing for heavy damage).
-- **Diverse Enemy AI:** 7 unique enemy types including Support healers, Siege Strikers, and massive Harbinger Bosses with corrosive suppression auras.
-- **Dynamic Maps:** 20x20 grid with randomized POIs, unbuildable obstacles, and tactical hazards (Volcanic/Corrosive).
-- **Pro UI/UX:** 
-  - In-game HUD with numeric real-time stats.
-  - Placement preview with directional turret indicators and 90-degree sector range.
-  - Interactive help system explaining all tactical layers.
-  - Aspect-ratio-correct resizable scaling with letterboxing.
+## Key Systems
+- **Logistics:** Units need proximity to Core/Power Plants to negate Logistics Strain (+2% cost/unit) and Power Penalties (80% regen drop).
+- **Combat:** Units attack in 90-degree front arcs. Rank 2 units specialize into **Cryo** (Slow) or **AP** (Piercing).
+- **Enemies:** 7 types (Support healers, Siege Strikers, Harbinger Bosses) with dynamic A* pathfinding and boss suppression auras.
+- **Economy:** Dual-resource (Energy for placement, Scrap for specialization).
 
-## Tech Stack
-- **Framework:** MonoGame (.NET 8.0)
-- **Rendering:** High-fidelity 2D primitives based on custom SVG asset translations.
-- **Font System:** Custom 5x7 high-quality bitmapped font.
-- **Architecture:** Manager-based decoupling with event-driven entity management.
-
-## Execution
-Requires .NET 8.0 SDK.
-
+## Build & Run
 ```bash
 dotnet build
 dotnet run

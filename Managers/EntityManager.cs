@@ -1,267 +1,140 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using TacticalDefenseGame.Entities;
 using TacticalDefenseGame.Models;
 using TacticalDefenseGame.Utils;
-using System;
 
 namespace TacticalDefenseGame.Managers
 {
     public class EntityManager
     {
         private readonly List<Entity> _allEntities = new();
-        
-        // Specialized Buckets for performance-critical lookups
         private readonly List<Enemy> _enemies = new();
         private readonly List<Node> _nodes = new();
         private readonly List<Projectile> _projectiles = new();
 
-        // Object Pools
         private readonly ObjectPool<Enemy> _enemyPool;
         private readonly ObjectPool<Projectile> _projectilePool;
         private readonly ObjectPool<Node> _nodePool;
 
+        private Dictionary<string, Texture2D> _textures;
+
         public EntityManager()
         {
-            _enemyPool = new ObjectPool<Enemy>(() => new Enemy(), initialCapacity: 20);
-            _projectilePool = new ObjectPool<Projectile>(() => new Projectile(), initialCapacity: 50);
-            _nodePool = new ObjectPool<Node>(() => new Node(), initialCapacity: 20);
+            _enemyPool = new ObjectPool<Enemy>(() => new Enemy(), 20);
+            _projectilePool = new ObjectPool<Projectile>(() => new Projectile(), 50);
+            _nodePool = new ObjectPool<Node>(() => new Node(), 20);
         }
 
         private GridManager _gridManager;
         private ResourceManager _resourceManager;
 
-        public void Initialize(GridManager gridManager, ResourceManager resourceManager)
+        public void Initialize(GridManager gridManager, ResourceManager resourceManager, Dictionary<string, Texture2D> textures)
         {
             _gridManager = gridManager;
             _resourceManager = resourceManager;
+            _textures = textures;
             _gridManager.NodePlaced += AddNode;
             _gridManager.NodeRemoved += RemoveNodeAt;
             _gridManager.NodePlaced += _ => RecalculateAllPaths();
             _gridManager.NodeRemoved += _ => RecalculateAllPaths();
         }
 
-        public void SpawnEnemy(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint, int currentWave)
+        public void SpawnEnemy(EnemyType type, Vector2 pos, List<Point> path, Vector2 corePos, Point corePoint, int wave)
         {
-            Enemy enemy = _enemyPool.Get();
-            enemy.Initialize(type, startPosition, path, corePos, corePoint, currentWave);
-            _enemies.Add(enemy);
-            _allEntities.Add(enemy);
+            Enemy e = _enemyPool.Get(); e.Initialize(type, pos, path, corePos, corePoint, wave);
+            _enemies.Add(e); _allEntities.Add(e);
         }
 
         private void RecalculateAllPaths()
         {
-            foreach (var enemy in _enemies)
-            {
-                if (enemy.IsActive && !enemy.ReachedCore)
-                {
-                    var newPath = _gridManager.FindPath(enemy.GetCurrentGridPosition(), enemy.CorePoint);
-                    if (newPath != null)
-                    {
-                        enemy.UpdatePath(newPath);
-                    }
-                }
-            }
+            foreach (var e in _enemies) if (e.IsActive && !e.ReachedCore) { var p = _gridManager.FindPath(e.GetCurrentGridPosition(), e.CorePoint); if (p != null) e.UpdatePath(p); }
         }
 
-        public void SpawnProjectile(Vector2 position, Enemy target, NodeSpecialization spec)
+        public void SpawnProjectile(Vector2 pos, Enemy target, NodeSpecialization spec)
         {
-            Projectile projectile = _projectilePool.Get();
-            projectile.Initialize(position, target, spec);
-            _projectiles.Add(projectile);
-            _allEntities.Add(projectile);
+            Projectile p = _projectilePool.Get(); p.Initialize(pos, target, spec);
+            _projectiles.Add(p); _allEntities.Add(p);
         }
 
-        public Node GetNodeFromPool(Point gridPos, Direction facing)
-        {
-            Node node = _nodePool.Get();
-            node.Initialize(gridPos, facing);
-            return node;
-        }
-
-        public void AddNode(Node node)
-        {
-            _nodes.Add(node);
-            _allEntities.Add(node);
-        }
-
-        public void RemoveNodeAt(Point gridPos)
-        {
-            for (int i = _nodes.Count - 1; i >= 0; i--)
-            {
-                if (_nodes[i].GridPosition == gridPos)
-                {
-                    Node node = _nodes[i];
-                    node.IsActive = false;
-                    _nodePool.Return(node);
-                    _nodes.RemoveAt(i);
-                    _allEntities.Remove(node);
-                    break;
-                }
-            }
-        }
-
+        public Node GetNodeFromPool(Point pos, Direction f) { Node n = _nodePool.Get(); n.Initialize(pos, f); return n; }
+        public void AddNode(Node n) { _nodes.Add(n); _allEntities.Add(n); }
+        public void RemoveNodeAt(Point p) { for (int i = _nodes.Count - 1; i >= 0; i--) if (_nodes[i].GridPosition == p) { Node n = _nodes[i]; n.IsActive = false; _nodePool.Return(n); _nodes.RemoveAt(i); _allEntities.Remove(n); break; } }
         public bool IsWaveCleared() => _enemies.Count == 0;
         public IReadOnlyList<Enemy> ActiveEnemies => _enemies;
-        public IReadOnlyList<Node> ActiveNodes => _nodes;
 
-        public int Update(GameTime gameTime, Point spawn, Point core, out float totalCoreDamage)
+        public void HealAllNodes(float amount) { foreach (var n in _nodes) n.Health = MathHelper.Min(n.MaxHealth, n.Health + amount); }
+
+        public int Update(GameTime gameTime, Point spawn, Point core, out float totalDmg)
         {
-            int reachedCoreCount = 0;
-            totalCoreDamage = 0f;
-            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
-
-            // 1. Calculate Army Multiplier (Logistics Strain)
-            // 2% cost increase per active node (Reduced from 5%)
+            int reached = 0; totalDmg = 0f; float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
             float armyMult = 1.0f + (_nodes.Count * 0.02f);
+            float globalFireRateMult = (_resourceManager.OverclockTimer > 0) ? 1.5f : 1.0f;
 
-            // 2. Reset Node Debuffs
-            foreach (var node in _nodes)
-            {
-                node.SuppressionMultiplier = 1.0f;
-            }
-
-            // 3. Unified Update Loop
-            for (int i = _allEntities.Count - 1; i >= 0; i--)
-            {
-                var entity = _allEntities[i];
-                entity.Update(gameTime);
-
-                if (entity is Enemy enemy)
-                {
-                    // Apply Corrosive Damage
-                    var cell = _gridManager.GetCell(enemy.GetCurrentGridPosition().X, enemy.GetCurrentGridPosition().Y);
-                    if (cell != null && cell.Type == CellType.Corrosive)
-                    {
-                        enemy.Health -= 5f * dt; // 5 damage per second
-                        if (enemy.Health <= 0) enemy.IsActive = false;
-                    }
-
-                    // Apply Harbinger Suppression Aura
-                    if (enemy.IsActive && enemy.Type == EnemyType.Harbinger && enemy.AuraRange > 0)
-                    {
-                        foreach (var node in _nodes)
-                        {
-                            if (Vector2.Distance(enemy.Position, node.Position) <= enemy.AuraRange)
-                            {
-                                node.SuppressionMultiplier = 1.5f; // 50% penalty
-                                node.TakeDamage(5f * dt); // 5 damage per second
-                            }
-                        }
-                    }
-
-                    if (enemy.ReachedCore)
-                    {
-                        reachedCoreCount++;
-                        totalCoreDamage += enemy.CoreDamage;
-                        ReturnEnemy(enemy);
-                    }
-                    else if (!enemy.IsActive)
-                    {
-                        ReturnEnemy(enemy);
-                    }
-                }
-                else if (entity is Projectile projectile && !projectile.IsActive)
-                {
-                    _projectilePool.Return(projectile);
-                    _projectiles.Remove(projectile);
-                    _allEntities.RemoveAt(i);
-                }
-                else if (entity is Node node)
-                {
-                    // Handle Node Death
-                    if (!node.IsActive)
-                    {
-                        _gridManager.RemoveNode(node.GridPosition.X, node.GridPosition.Y, spawn, core);
-                        continue;
-                    }
-
-                    // Check for Volcanic heat penalty
-                    float heatMult = 1.0f;
-                    var cell = _gridManager.GetCell(node.GridPosition.X, node.GridPosition.Y);
-                    if (cell != null && cell.Type == CellType.Volcanic) heatMult = 1.5f;
-
-                    // Continuous Aiming
-                    var target = node.FindTarget(_enemies);
-                    node.AimAt(target, dt);
-
-                    if (node.CanFire(heatMult, armyMult))
-                    {
-                        if (target != null)
-                        {
-                            SpawnProjectile(node.Position, target, node.Specialization);
-                            node.AddExperience(10f); // Award XP
-                        }
-                    }
+            foreach (var n in _nodes) n.SuppressionMultiplier = 1.0f;
+            for (int i = _allEntities.Count - 1; i >= 0; i--) {
+                var ent = _allEntities[i]; ent.Update(gameTime);
+                if (ent is Enemy e) {
+                    var cell = _gridManager.GetCell(e.GetCurrentGridPosition().X, e.GetCurrentGridPosition().Y);
+                    if (cell != null && cell.Type == CellType.Corrosive) { e.Health -= 5f * dt; if (e.Health <= 0) e.IsActive = false; }
+                    if (e.IsActive && e.Type == EnemyType.Harbinger && e.AuraRange > 0) foreach (var n in _nodes) if (Vector2.Distance(e.Position, n.Position) <= e.AuraRange) { n.SuppressionMultiplier = 1.5f; n.TakeDamage(5f * dt); }
+                    if (e.ReachedCore) { reached++; totalDmg += e.CoreDamage; ReturnEnemy(e); } else if (!e.IsActive) ReturnEnemy(e);
+                } else if (ent is Projectile p && !p.IsActive) { _projectilePool.Return(p); _projectiles.Remove(p); _allEntities.RemoveAt(i); }
+                else if (ent is Node n) {
+                    if (!n.IsActive) { _gridManager.RemoveNode(n.GridPosition.X, n.GridPosition.Y, spawn, core); continue; }
+                    float hMult = (_gridManager.GetCell(n.GridPosition.X, n.GridPosition.Y)?.Type == CellType.Volcanic) ? 1.5f : 1.0f;
+                    var t = n.FindTarget(_enemies); n.AimAt(t, dt);
+                    // Apply Overclock multiplier to fire check
+                    if (n.CanFire(hMult, armyMult * (1.0f / globalFireRateMult)) && t != null) { SpawnProjectile(n.Position, t, n.Specialization); n.AddExperience(10f); }
                 }
             }
-
-            // 4. Execute Advanced Enemy Abilities
-            foreach (var enemy in _enemies)
-            {
-                if (!enemy.IsActive) continue;
-
-                if (enemy.Type == EnemyType.Support)
-                {
-                    if (enemy.CanUseAbility())
-                    {
-                        foreach (var other in _enemies)
-                        {
-                            if (other.IsActive && Vector2.Distance(enemy.Position, other.Position) <= enemy.AbilityRange)
-                            {
-                                other.Health = MathHelper.Min(other.MaxHealth, other.Health + enemy.AbilityPower);
-                            }
-                        }
-                    }
-                }
-                else if (enemy.Type == EnemyType.Striker)
-                {
-                    enemy.IsAttacking = false;
-                    Node targetNode = null;
-                    float minDist = enemy.AbilityRange;
-
-                    foreach (var node in _nodes)
-                    {
-                        float dist = Vector2.Distance(enemy.Position, node.Position);
-                        if (dist <= minDist)
-                        {
-                            minDist = dist;
-                            targetNode = node;
-                        }
-                    }
-
-                    if (targetNode != null)
-                    {
-                        enemy.IsAttacking = true;
-                        if (enemy.CanUseAbility())
-                        {
-                            targetNode.TakeDamage(enemy.AbilityPower);
-                        }
-                    }
+            foreach (var e in _enemies) {
+                if (!e.IsActive) continue;
+                if (e.Type == EnemyType.Support && e.CanUseAbility()) foreach (var o in _enemies) if (o.IsActive && Vector2.Distance(e.Position, o.Position) <= e.AbilityRange) o.Health = MathHelper.Min(o.MaxHealth, o.Health + e.AbilityPower);
+                else if (e.Type == EnemyType.Striker) {
+                    e.IsAttacking = false; Node targetNode = null; float minDist = e.AbilityRange;
+                    foreach (var n in _nodes) { float d = Vector2.Distance(e.Position, n.Position); if (d <= minDist) { minDist = d; targetNode = n; } }
+                    if (targetNode != null) { e.IsAttacking = true; e.AttackTargetPosition = targetNode.Position; if (e.CanUseAbility()) targetNode.TakeDamage(e.AbilityPower); }
                 }
             }
-
-            return reachedCoreCount;
+            return reached;
         }
 
-        private void ReturnEnemy(Enemy enemy)
-        {
-            if (!enemy.ReachedCore)
-            {
-                _resourceManager.AddScrap(enemy.ScrapValue);
-            }
-            _enemyPool.Return(enemy);
-            _enemies.Remove(enemy);
-            _allEntities.Remove(enemy);
-        }
+        private void ReturnEnemy(Enemy e) { if (!e.ReachedCore) _resourceManager.AddScrap(e.ScrapValue); _enemyPool.Return(e); _enemies.Remove(e); _allEntities.Remove(e); }
 
-        public void Draw(SpriteBatch spriteBatch, Texture2D pixel)
+        public void Draw(SpriteBatch sb, Texture2D px)
         {
-            // Unified Draw Loop
-            foreach (var entity in _allEntities)
-            {
-                entity.Draw(spriteBatch, pixel);
+            if (_textures == null) return;
+            foreach (var ent in _allEntities) {
+                if (ent is Node n) {
+                    string key = n.Specialization switch { NodeSpecialization.Cryo => "tower_ice", NodeSpecialization.ArmorPiercing => "tower_laser", _ => "tower_base" };
+                    if (_textures.ContainsKey(key)) {
+                        Texture2D tex = _textures[key];
+                        Vector2 origin = new Vector2(tex.Width / 2f, tex.Height / 2f);
+                        float rot = n.Facing switch { Direction.Up => 0, Direction.Right => MathHelper.PiOver2, Direction.Down => MathHelper.Pi, Direction.Left => -MathHelper.PiOver2, _ => 0 };
+                        // Standardized 1.4x Scale
+                        float scale = (GridManager.CellSize * 1.4f) / tex.Width;
+                        sb.Draw(tex, n.Position, null, Color.White, rot, origin, scale, SpriteEffects.None, 0);
+                    }
+                    n.DrawExtras(sb, px);
+                } else if (ent is Enemy e) {
+                    string key = e.Type switch { EnemyType.Standard => "enemy_standard", EnemyType.Speedster => "enemy_speedster", EnemyType.Tank => "enemy_tank", EnemyType.Phaser => "enemy_phaser", EnemyType.Support => "enemy_support", EnemyType.Striker => "enemy_striker", EnemyType.Harbinger => "enemy_harbinger", _ => null };
+                    if (key != null && _textures.ContainsKey(key)) {
+                        Texture2D tex = _textures[key];
+                        Vector2 origin = new Vector2(tex.Width / 2f, tex.Height / 2f);
+                        float rot = e.Rotation; 
+                        if (e.AttackTargetPosition.HasValue && e.Type == EnemyType.Striker && e.IsAttacking) {
+                            Vector2 dir = e.AttackTargetPosition.Value - e.Position;
+                            rot = (float)Math.Atan2(dir.Y, dir.X) + MathHelper.PiOver2; 
+                        }
+                        // Standardized 1.4x Scale
+                        float scale = (GridManager.CellSize * 1.4f) / tex.Width;
+                        sb.Draw(tex, e.Position, null, Color.White, rot, origin, scale, SpriteEffects.None, 0);
+                    }
+                    e.DrawExtras(sb, px);
+                } else ent.Draw(sb, px);
             }
         }
     }
