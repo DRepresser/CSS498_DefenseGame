@@ -16,9 +16,6 @@ obj/
 
 # Project Specific
 telemetry.json
-game_improvements.md
-game-spec.md
-GEMINI.md
 
 # OS Specific
 .DS_Store
