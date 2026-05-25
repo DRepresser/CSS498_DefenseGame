@@ -110,7 +110,13 @@ namespace TacticalDefenseGame.Managers
             int reachedCoreCount = 0;
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
-            // 1. Unified Update Loop
+            // 1. Reset Node Debuffs
+            foreach (var node in _nodes)
+            {
+                node.SuppressionMultiplier = 1.0f;
+            }
+
+            // 2. Unified Update Loop
             for (int i = _allEntities.Count - 1; i >= 0; i--)
             {
                 var entity = _allEntities[i];
@@ -124,6 +130,19 @@ namespace TacticalDefenseGame.Managers
                     {
                         enemy.Health -= 5f * dt; // 5 damage per second
                         if (enemy.Health <= 0) enemy.IsActive = false;
+                    }
+
+                    // Apply Harbinger Suppression Aura
+                    if (enemy.IsActive && enemy.Type == EnemyType.Harbinger && enemy.AuraRange > 0)
+                    {
+                        foreach (var node in _nodes)
+                        {
+                            if (Vector2.Distance(enemy.Position, node.Position) <= enemy.AuraRange)
+                            {
+                                node.SuppressionMultiplier = 1.5f; // 50% penalty
+                                node.TakeDamage(2f * dt); // 2 damage per second
+                            }
+                        }
                     }
 
                     if (enemy.ReachedCore)
@@ -171,7 +190,7 @@ namespace TacticalDefenseGame.Managers
                 }
             }
 
-            // 2. Execute Advanced Enemy Abilities
+            // 3. Execute Advanced Enemy Abilities
             foreach (var enemy in _enemies)
             {
                 if (!enemy.IsActive) continue;

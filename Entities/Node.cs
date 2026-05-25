@@ -49,6 +49,7 @@ namespace TacticalDefenseGame.Entities
         public float ExperienceToNextRank = 100f;
         public NodeSpecialization Specialization = NodeSpecialization.None;
         public bool IsPowered = true;
+        public float SuppressionMultiplier = 1.0f; // 1.0 = normal, >1.0 = debuffed
 
         // State Effects
         private List<SteamParticle> _particles = new();
@@ -192,11 +193,17 @@ namespace TacticalDefenseGame.Entities
         {
             if (IsOverheated) return false;
 
-            if (_fireTimer >= 1.0f / FireRate)
+            // Apply Suppression Multiplier: 
+            // - Slower FireRate (Higher interval)
+            // - Higher Stamina Cost
+            float suppressedFireRate = FireRate / SuppressionMultiplier;
+            float suppressedActionCost = ActionCost * SuppressionMultiplier;
+
+            if (_fireTimer >= 1.0f / suppressedFireRate)
             {
                 // Calculate non-linear shot cost with Synergy Cost Multiplier
                 float effectiveAlpha = (float)Math.Pow(HeatModifier, HeatExponent);
-                float cost = ActionCost * effectiveAlpha * SynergyCostMultiplier;
+                float cost = suppressedActionCost * effectiveAlpha * SynergyCostMultiplier;
                 
                 if (CurrentStamina >= cost)
                 {
@@ -357,6 +364,7 @@ namespace TacticalDefenseGame.Entities
             if (SynergyRangeBonus > 0) spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 8, (int)Position.Y - 12, 4, 4), Color.Cyan);
             if (SynergyCostMultiplier < 1.0f) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 12, (int)Position.Y + 8, 4, 4), Color.Gold);
             if (!IsPowered) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 2, (int)Position.Y - 2, 4, 4), Color.Red);
+            if (SuppressionMultiplier > 1.0f) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 6, (int)Position.Y + 8, 4, 4), Color.Purple);
 
             // 9. Node Health Bar
             if (Health < MaxHealth)

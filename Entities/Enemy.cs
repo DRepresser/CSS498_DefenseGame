@@ -19,6 +19,7 @@ namespace TacticalDefenseGame.Entities
         private float _abilityTimer = 0f;
         public float AbilityRange = 100f;
         public float AbilityPower = 10f; // Healing or Damage
+        public float AuraRange = 0f;
         public bool IsAttacking = false;
 
         private float _speedMultiplier = 1.0f;
@@ -71,7 +72,8 @@ namespace TacticalDefenseGame.Entities
                     break;
                 case EnemyType.Harbinger:
                     Speed = 30f; Health = 1500f; MaxHealth = 1500f; Color = Color.DarkSlateBlue; ScrapValue = 200f;
-                    AbilityRange = 200f; AbilityPower = 10f; AbilityCooldown = 4.0f; // EMP/Pulse potential
+                    AbilityRange = 200f; AbilityPower = 10f; AbilityCooldown = 4.0f; 
+                    AuraRange = 100f; // 2 grid radius
                     break;
             }
             MaxHealth = Health;

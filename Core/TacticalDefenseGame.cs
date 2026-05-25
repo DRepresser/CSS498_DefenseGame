@@ -58,6 +58,11 @@ namespace TacticalDefenseGame.Core
             _graphics.ApplyChanges();
 
             Window.AllowUserResizing = true;
+            Window.ClientSizeChanged += (s, e) => {
+                _graphics.PreferredBackBufferWidth = Window.ClientBounds.Width;
+                _graphics.PreferredBackBufferHeight = Window.ClientBounds.Height;
+                _graphics.ApplyChanges();
+            };
         }
 
         protected override void Initialize()
@@ -292,7 +297,16 @@ namespace TacticalDefenseGame.Core
             }
             _spriteBatch.End();
 
-            // 3. Draw Help Overlay (Highest Layer)
+            // 2. Draw RenderTarget to Backbuffer (Uniform Scaling + Letterboxing)
+            GraphicsDevice.SetRenderTarget(null);
+            GraphicsDevice.Viewport = new Viewport(0, 0, Window.ClientBounds.Width, Window.ClientBounds.Height);
+            GraphicsDevice.Clear(Color.Black);
+
+            _spriteBatch.Begin();
+            _spriteBatch.Draw(_renderTarget, vp, Color.White);
+            _spriteBatch.End();
+
+            // 3. Draw Help Overlay (Highest Layer, outside virtual space to stay sharp if needed, or inside for scale)
             if (_showHelp)
             {
                 _spriteBatch.Begin();
@@ -300,25 +314,18 @@ namespace TacticalDefenseGame.Core
                 _spriteBatch.End();
             }
 
-            // 2. Draw RenderTarget to Backbuffer (Uniform Scaling + Letterboxing)
-            GraphicsDevice.SetRenderTarget(null);
-            GraphicsDevice.Clear(Color.Black);
-
-            _spriteBatch.Begin();
-            _spriteBatch.Draw(_renderTarget, vp, Color.White);
-            _spriteBatch.End();
-
             base.Draw(gameTime);
-        }
+            }
 
-        private Rectangle GetViewportRect()
-        {
-            int actualWidth = GraphicsDevice.Viewport.Width;
-            int actualHeight = GraphicsDevice.Viewport.Height;
+            private Rectangle GetViewportRect()
+            {
+            int actualWidth = Window.ClientBounds.Width;
+            int actualHeight = Window.ClientBounds.Height;
+
+            if (actualWidth <= 0 || actualHeight <= 0) return new Rectangle(0, 0, 1, 1);
 
             float virtualAspect = (float)_virtualWidth / _virtualHeight;
             float actualAspect = (float)actualWidth / actualHeight;
-
             int targetWidth = actualWidth;
             int targetHeight = actualHeight;
             int x = 0;
