@@ -16,6 +16,11 @@ namespace TacticalDefenseGame.Core
         // Primitive rendering helpers
         private Texture2D _pixel;
 
+        // Virtual Resolution / Scaling
+        private RenderTarget2D _renderTarget;
+        private int _virtualWidth;
+        private int _virtualHeight;
+
         // HUD Constants
         private const int HudHeight = 60;
 
@@ -33,6 +38,7 @@ namespace TacticalDefenseGame.Core
         // UI / Input State
         private Direction _currentFacing = Direction.Right;
         private KeyboardState _lastKeyboardState;
+        private bool _showHelp = false;
 
         // Game State
         private GameState _currentState;
@@ -43,9 +49,15 @@ namespace TacticalDefenseGame.Core
             Content.RootDirectory = "Content";
             IsMouseVisible = true;
 
-            // Set window size based on grid + HUD
-            _graphics.PreferredBackBufferWidth = GridManager.GridSize * GridManager.CellSize;
-            _graphics.PreferredBackBufferHeight = GridManager.GridSize * GridManager.CellSize + HudHeight;
+            // Set internal virtual size based on grid + HUD
+            _virtualWidth = GridManager.GridSize * GridManager.CellSize;
+            _virtualHeight = GridManager.GridSize * GridManager.CellSize + HudHeight;
+
+            _graphics.PreferredBackBufferWidth = _virtualWidth;
+            _graphics.PreferredBackBufferHeight = _virtualHeight;
+            _graphics.ApplyChanges();
+
+            Window.AllowUserResizing = true;
         }
 
         protected override void Initialize()
@@ -68,9 +80,10 @@ namespace TacticalDefenseGame.Core
         protected override void LoadContent()
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
-
             _pixel = new Texture2D(GraphicsDevice, 1, 1);
             _pixel.SetData(new[] { Color.White });
+
+            _renderTarget = new RenderTarget2D(GraphicsDevice, _virtualWidth, _virtualHeight);
         }
 
         protected override void Update(GameTime gameTime)
@@ -88,75 +101,97 @@ namespace TacticalDefenseGame.Core
                 }
 
                 var mouseState = Mouse.GetState();
-                int gridX = mouseState.X / GridManager.CellSize;
-                int gridY = (mouseState.Y - HudHeight) / GridManager.CellSize;
+                
+                // Map screen mouse to virtual coordinates (Maintaining Aspect Ratio)
+                Rectangle vp = GetViewportRect();
+                float scale = (float)vp.Width / _virtualWidth;
+                int vMouseX = (int)((mouseState.X - vp.X) / scale);
+                int vMouseY = (int)((mouseState.Y - vp.Y) / scale);
 
-                if (mouseState.LeftButton == ButtonState.Pressed && mouseState.Y >= HudHeight)
+                // Handle Info Icon Click
+                if (mouseState.LeftButton == ButtonState.Pressed && _lastKeyboardState.IsKeyUp(Keys.None)) // Check for click
                 {
-                    if (_resourceManager.Energy >= 15f) // Reduced Cost: 15
+                    if (vMouseX >= 900 && vMouseX <= 940 && vMouseY >= 10 && vMouseY <= 50)
                     {
-                        if (_gridManager.CanPlaceNode(gridX, gridY, _spawnPoint, _corePoint, _entityManager.ActiveEnemies))
+                        if (DateTime.Now.Ticks / 10000 - _lastClickTicks > 200) // Debounce
                         {
-                            _resourceManager.TrySpendEnergy(15f);
-                            _telemetryManager.RecordEnergySpent(15f);
-                            var node = _entityManager.GetNodeFromPool(new Point(gridX, gridY), _currentFacing);
-                            _gridManager.PlaceNode(gridX, gridY, node, _corePoint);
-                            // Node is added to EntityManager via Event
+                            _showHelp = !_showHelp;
+                            _lastClickTicks = DateTime.Now.Ticks / 10000;
                         }
                     }
                 }
-                if (mouseState.RightButton == ButtonState.Pressed && mouseState.Y >= HudHeight)
-                {
-                    _gridManager.RemoveNode(gridX, gridY, _spawnPoint, _corePoint);
-                    // Node is removed from EntityManager via Event
-                }
 
-                // Handle Node Specialization
-                if (mouseState.Y >= HudHeight)
+                if (_showHelp)
                 {
-                    var hoveredCell = _gridManager.GetCell(gridX, gridY);
-                    if (hoveredCell != null && hoveredCell.OccupyingNode != null && hoveredCell.OccupyingNode.Rank >= 2 && hoveredCell.OccupyingNode.Specialization == NodeSpecialization.None)
+                    if (keyboardState.IsKeyDown(Keys.Space) || keyboardState.IsKeyDown(Keys.Enter))
+                        _showHelp = false;
+                }
+                else
+                {
+                    int gridX = vMouseX / GridManager.CellSize;
+                    int gridY = (vMouseY - HudHeight) / GridManager.CellSize;
+
+                    if (mouseState.LeftButton == ButtonState.Pressed && vMouseY >= HudHeight)
                     {
-                        if (keyboardState.IsKeyDown(Keys.D1) && _lastKeyboardState.IsKeyUp(Keys.D1))
+                        if (_resourceManager.Energy >= 15f)
                         {
-                            if (_resourceManager.TrySpendScrap(30f)) // Reduced Cost: 30
+                            if (_gridManager.CanPlaceNode(gridX, gridY, _spawnPoint, _corePoint, _entityManager.ActiveEnemies))
                             {
-                                hoveredCell.OccupyingNode.Specialization = NodeSpecialization.Cryo;
+                                _resourceManager.TrySpendEnergy(15f);
+                                _telemetryManager.RecordEnergySpent(15f);
+                                var node = _entityManager.GetNodeFromPool(new Point(gridX, gridY), _currentFacing);
+                                _gridManager.PlaceNode(gridX, gridY, node, _corePoint);
                             }
                         }
-                        else if (keyboardState.IsKeyDown(Keys.D2) && _lastKeyboardState.IsKeyUp(Keys.D2))
+                    }
+                    if (mouseState.RightButton == ButtonState.Pressed && vMouseY >= HudHeight)
+                    {
+                        _gridManager.RemoveNode(gridX, gridY, _spawnPoint, _corePoint);
+                    }
+
+                    // Handle Node Specialization
+                    if (vMouseY >= HudHeight)
+                    {
+                        var hoveredCell = _gridManager.GetCell(gridX, gridY);
+                        if (hoveredCell != null && hoveredCell.OccupyingNode != null && hoveredCell.OccupyingNode.Rank >= 2 && hoveredCell.OccupyingNode.Specialization == NodeSpecialization.None)
                         {
-                            if (_resourceManager.TrySpendScrap(30f)) // Reduced Cost: 30
+                            if (keyboardState.IsKeyDown(Keys.D1) && _lastKeyboardState.IsKeyUp(Keys.D1))
                             {
-                                hoveredCell.OccupyingNode.Specialization = NodeSpecialization.ArmorPiercing;
+                                if (_resourceManager.TrySpendScrap(30f))
+                                    hoveredCell.OccupyingNode.Specialization = NodeSpecialization.Cryo;
+                            }
+                            else if (keyboardState.IsKeyDown(Keys.D2) && _lastKeyboardState.IsKeyUp(Keys.D2))
+                            {
+                                if (_resourceManager.TrySpendScrap(30f))
+                                    hoveredCell.OccupyingNode.Specialization = NodeSpecialization.ArmorPiercing;
                             }
                         }
                     }
-                }
 
-                if (keyboardState.IsKeyDown(Keys.Space) && _lastKeyboardState.IsKeyUp(Keys.Space))
-                {
-                    if (!_waveManager.IsWaveActive())
+                    if (keyboardState.IsKeyDown(Keys.Space) && _lastKeyboardState.IsKeyUp(Keys.Space))
                     {
-                        if (_waveManager.CurrentWave > 0)
-                            _telemetryManager.EndWave(_resourceManager.CoreHealth);
+                        if (!_waveManager.IsWaveActive())
+                        {
+                            if (_waveManager.CurrentWave > 0)
+                                _telemetryManager.EndWave(_resourceManager.CoreHealth);
 
-                        _waveManager.StartNextWave();
-                        _telemetryManager.StartWave(_waveManager.CurrentWave);
+                            _waveManager.StartNextWave();
+                            _telemetryManager.StartWave(_waveManager.CurrentWave);
+                        }
                     }
-                }
 
-                _gridManager.Update(gameTime);
-                _resourceManager.Update(gameTime);
-                int reachedCore = _entityManager.Update(gameTime, _spawnPoint, _corePoint);
-                if (reachedCore > 0)
-                {
-                    float damage = reachedCore * 10f;
-                    _resourceManager.TakeDamage(damage); // 10 damage per enemy
-                    _telemetryManager.RecordDamageTaken(damage);
-                }
+                    _gridManager.Update(gameTime);
+                    _resourceManager.Update(gameTime);
+                    int reachedCore = _entityManager.Update(gameTime, _spawnPoint, _corePoint);
+                    if (reachedCore > 0)
+                    {
+                        float damage = reachedCore * 10f;
+                        _resourceManager.TakeDamage(damage);
+                        _telemetryManager.RecordDamageTaken(damage);
+                    }
 
-                _waveManager.Update(gameTime, _entityManager, _gridManager, _spawnPoint, _corePoint);
+                    _waveManager.Update(gameTime, _entityManager, _gridManager, _spawnPoint, _corePoint);
+                }
 
                 if (_resourceManager.CoreHealth <= 0)
                 {
@@ -186,48 +221,54 @@ namespace TacticalDefenseGame.Core
             base.Update(gameTime);
         }
 
+        private long _lastClickTicks = 0;
+
         protected override void Draw(GameTime gameTime)
         {
+            // 1. Draw to Virtual RenderTarget
+            GraphicsDevice.SetRenderTarget(_renderTarget);
             GraphicsDevice.Clear(Color.Black);
 
             var mouseState = Mouse.GetState();
-            Point hoveredCell = new Point(mouseState.X / GridManager.CellSize, (mouseState.Y - HudHeight) / GridManager.CellSize);
+            Rectangle vp = GetViewportRect();
+            float scale = (float)vp.Width / _virtualWidth;
+            int vMouseX = (int)((mouseState.X - vp.X) / scale);
+            int vMouseY = (int)((mouseState.Y - vp.Y) / scale);
+            
+            Point hoveredCell = new Point(vMouseX / GridManager.CellSize, (vMouseY - HudHeight) / GridManager.CellSize);
 
             _spriteBatch.Begin();
-
-            // 1. Draw HUD
             DrawHUD();
-
-            // 2. Draw Game World (shifted by HudHeight)
-            // Using a Matrix for translation makes drawing everything easier
+            
+            // Draw Help Icon
+            Rectangle helpRect = new Rectangle(900, 10, 40, 40);
+            _spriteBatch.Draw(_pixel, helpRect, Color.Gray * 0.4f);
+            DrawBorder(_spriteBatch, _pixel, helpRect, 2, Color.White * 0.5f);
+            DrawString("?", 912, 15, 3, Color.White);
+            
             _spriteBatch.End();
-            _spriteBatch.Begin(transformMatrix: Matrix.CreateTranslation(0, HudHeight, 0));
 
+            _spriteBatch.Begin(transformMatrix: Matrix.CreateTranslation(0, HudHeight, 0));
             _gridManager.Draw(_spriteBatch, _pixel, hoveredCell, _entityManager.ActiveEnemies);
             
-            // Highlight Spawn and Core
             _spriteBatch.Draw(_pixel, new Rectangle(_spawnPoint.X * GridManager.CellSize, _spawnPoint.Y * GridManager.CellSize, GridManager.CellSize, GridManager.CellSize), Color.Green * 0.5f);
             _spriteBatch.Draw(_pixel, new Rectangle(_corePoint.X * GridManager.CellSize, _corePoint.Y * GridManager.CellSize, GridManager.CellSize, GridManager.CellSize), Color.Blue * 0.5f);
             
             _entityManager.Draw(_spriteBatch, _pixel);
 
-            // 3. Draw Placement Preview
-            if (_currentState == GameState.Gameplay && mouseState.Y >= HudHeight)
+            // Placement Preview
+            if (!_showHelp && _currentState == GameState.Gameplay && vMouseY >= HudHeight)
             {
-                int pGridX = mouseState.X / GridManager.CellSize;
-                int pGridY = (mouseState.Y - HudHeight) / GridManager.CellSize;
+                int pGridX = vMouseX / GridManager.CellSize;
+                int pGridY = (vMouseY - HudHeight) / GridManager.CellSize;
                 
                 if (pGridX >= 0 && pGridX < GridManager.GridSize && pGridY >= 0 && pGridY < GridManager.GridSize)
                 {
                     bool canPlace = _gridManager.CanPlaceNode(pGridX, pGridY, _spawnPoint, _corePoint, _entityManager.ActiveEnemies);
                     Color previewColor = canPlace ? Color.White * 0.4f : Color.Red * 0.4f;
-                    
                     Vector2 previewPos = new Vector2(pGridX * GridManager.CellSize + GridManager.CellSize / 2, pGridY * GridManager.CellSize + GridManager.CellSize / 2);
-                    
-                    // Draw Base
                     _spriteBatch.Draw(_pixel, new Rectangle((int)previewPos.X - 15, (int)previewPos.Y - 15, 30, 30), previewColor);
                     
-                    // Draw Direction Indicator
                     float angle = _currentFacing switch
                     {
                         Direction.Up => -MathHelper.PiOver2,
@@ -243,16 +284,158 @@ namespace TacticalDefenseGame.Core
 
             if (_currentState == GameState.GameOver)
             {
-                _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, _graphics.PreferredBackBufferHeight - HudHeight), Color.Red * 0.5f);
+                _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _virtualWidth, _virtualHeight - HudHeight), Color.Red * 0.5f);
             }
             else if (_currentState == GameState.Victory)
             {
-                _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, _graphics.PreferredBackBufferHeight - HudHeight), Color.Gold * 0.5f);
+                _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _virtualWidth, _virtualHeight - HudHeight), Color.Gold * 0.5f);
+            }
+            _spriteBatch.End();
+
+            // 3. Draw Help Overlay (Highest Layer)
+            if (_showHelp)
+            {
+                _spriteBatch.Begin();
+                DrawHelpOverlay();
+                _spriteBatch.End();
             }
 
+            // 2. Draw RenderTarget to Backbuffer (Uniform Scaling + Letterboxing)
+            GraphicsDevice.SetRenderTarget(null);
+            GraphicsDevice.Clear(Color.Black);
+
+            _spriteBatch.Begin();
+            _spriteBatch.Draw(_renderTarget, vp, Color.White);
             _spriteBatch.End();
 
             base.Draw(gameTime);
+        }
+
+        private Rectangle GetViewportRect()
+        {
+            int actualWidth = GraphicsDevice.Viewport.Width;
+            int actualHeight = GraphicsDevice.Viewport.Height;
+
+            float virtualAspect = (float)_virtualWidth / _virtualHeight;
+            float actualAspect = (float)actualWidth / actualHeight;
+
+            int targetWidth = actualWidth;
+            int targetHeight = actualHeight;
+            int x = 0;
+            int y = 0;
+
+            if (actualAspect > virtualAspect)
+            {
+                // Pillarbox
+                targetWidth = (int)(actualHeight * virtualAspect);
+                x = (actualWidth - targetWidth) / 2;
+            }
+            else
+            {
+                // Letterbox
+                targetHeight = (int)(actualWidth / virtualAspect);
+                y = (actualHeight - targetHeight) / 2;
+            }
+
+            return new Rectangle(x, y, targetWidth, targetHeight);
+        }
+
+        private void DrawHelpOverlay()
+        {
+            Rectangle bg = new Rectangle(50, 100, _virtualWidth - 100, _virtualHeight - 200);
+            _spriteBatch.Draw(_pixel, bg, Color.Black * 0.9f);
+            DrawBorder(_spriteBatch, _pixel, bg, 4, Color.Gray);
+
+            int x = 80; int y = 130;
+            DrawString("GAME INFO", x, y, 4, Color.White); y += 60;
+
+            // 1. Hazards
+            DrawString("MAP HAZARDS", x, y, 2, Color.Yellow); y += 30;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.Black); DrawString("OBSTACLE-WALL", x + 30, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.OrangeRed * 0.6f); DrawString("VOLCANIC-HEAT UP", x + 30, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.DarkGreen * 0.6f); DrawString("CORROSIVE-DMG ENEMY", x + 30, y, 2, Color.White); y += 40;
+
+            // 2. Power Grid
+            DrawString("INFRASTRUCTURE", x, y, 2, Color.Yellow); y += 30;
+            DrawString("CONNECT NODES TO CORE (BLUE)", x, y, 2, Color.White); y += 25;
+            DrawString("UNPOWERED (RED DOT) = 80% REGEN PENALTY", x, y, 2, Color.White); y += 40;
+
+            // 3. Combat
+            DrawString("COMBAT & PROGRESSION", x, y, 2, Color.Yellow); y += 30;
+            DrawString("UNIT ATTACK IN 90 DEGREE ARC", x, y, 2, Color.White); y += 25;
+            DrawString("XP -> RANK 2 -> SPEC (1=CRYO 2=AP)", x, y, 2, Color.White); y += 40;
+
+            // 4. Enemy
+            DrawString("ENEMY TYPES", x, y, 2, Color.Yellow); y += 30;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.LimeGreen); DrawString("SUPPORT-HEALER", x + 25, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.Crimson); DrawString("STRIKER-SIEGE UNIT", x + 25, y, 2, Color.White); y += 40;
+
+            // 5. Economy
+            DrawString("RESOURCE ECONOMY", x, y, 2, Color.Yellow); y += 30;
+            DrawString("ENERGY:BUILDING (15)  SCRAP:SPEC (30)", x, y, 2, Color.White); y += 50;
+
+            DrawString("PRESS SPACE OR CLICK ICON TO CLOSE", x, bg.Height + 60, 2, Color.Gray);
+        }
+
+        private void DrawString(string text, int x, int y, int size, Color color)
+        {
+            int curX = x;
+            foreach (char c in text.ToUpper())
+            {
+                if (c >= '0' && c <= '9') DrawDigit(c - '0', new Vector2(curX, y), size, color);
+                else DrawChar(c, new Vector2(curX, y), size, color);
+                curX += size * 5;
+            }
+        }
+
+        private void DrawChar(char c, Vector2 pos, int size, Color color)
+        {
+            bool[,] segments = c switch
+            {
+                'A' => new[,] { { false, true, false }, { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true } },
+                'B' => new[,] { { true, true, false }, { true, false, true }, { true, true, false }, { true, false, true }, { true, true, false } },
+                'C' => new[,] { { true, true, true }, { true, false, false }, { true, false, false }, { true, false, false }, { true, true, true } },
+                'D' => new[,] { { true, true, false }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, false } },
+                'E' => new[,] { { true, true, true }, { true, false, false }, { true, true, false }, { true, false, false }, { true, true, true } },
+                'F' => new[,] { { true, true, true }, { true, false, false }, { true, true, false }, { true, false, false }, { true, false, false } },
+                'G' => new[,] { { true, true, true }, { true, false, false }, { true, false, true }, { true, false, true }, { true, true, true } },
+                'H' => new[,] { { true, false, true }, { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true } },
+                'I' => new[,] { { true, true, true }, { false, true, false }, { false, true, false }, { false, true, false }, { true, true, true } },
+                'J' => new[,] { { false, false, true }, { false, false, true }, { false, false, true }, { true, false, true }, { true, true, true } },
+                'K' => new[,] { { true, false, true }, { true, false, true }, { true, true, false }, { true, false, true }, { true, false, true } },
+                'L' => new[,] { { true, false, false }, { true, false, false }, { true, false, false }, { true, false, false }, { true, true, true } },
+                'M' => new[,] { { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true } },
+                'N' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true } },
+                'O' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true } },
+                'P' => new[,] { { true, true, true }, { true, false, true }, { true, true, true }, { true, false, false }, { true, false, false } },
+                'Q' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, true, true }, { false, false, true } },
+                'R' => new[,] { { true, true, true }, { true, false, true }, { true, true, false }, { true, false, true }, { true, false, true } },
+                'S' => new[,] { { true, true, true }, { true, false, false }, { true, true, true }, { false, false, true }, { true, true, true } },
+                'T' => new[,] { { true, true, true }, { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false } },
+                'U' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true } },
+                'V' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true }, { false, true, false } },
+                'W' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true }, { true, false, true } },
+                'X' => new[,] { { true, false, true }, { true, false, true }, { false, true, false }, { true, false, true }, { true, false, true } },
+                'Y' => new[,] { { true, false, true }, { true, false, true }, { true, true, true }, { false, true, false }, { false, true, false } },
+                'Z' => new[,] { { true, true, true }, { false, false, true }, { false, true, false }, { true, false, false }, { true, true, true } },
+                '?' => new[,] { { true, true, true }, { false, false, true }, { false, true, true }, { false, false, false }, { false, true, false } },
+                ':' => new[,] { { false, false, false }, { false, true, false }, { false, false, false }, { false, true, false }, { false, false, false } },
+                '-' => new[,] { { false, false, false }, { false, false, false }, { true, true, true }, { false, false, false }, { false, false, false } },
+                '(' => new[,] { { false, true, false }, { true, false, false }, { true, false, false }, { true, false, false }, { false, true, false } },
+                '=' => new[,] { { false, false, false }, { true, true, true }, { false, false, false }, { true, true, true }, { false, false, false } },
+                _ => new[,] { { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false } }
+            };
+
+            for (int y = 0; y < 5; y++)
+            {
+                for (int x = 0; x < 3; x++)
+                {
+                    if (segments[y, x])
+                    {
+                        _spriteBatch.Draw(_pixel, new Rectangle((int)pos.X + x * size, (int)pos.Y + y * size, size, size), color);
+                    }
+                }
+            }
         }
 
         private void DrawHUD()
@@ -321,9 +504,8 @@ namespace TacticalDefenseGame.Core
 
         private void DrawLabeledBar(string label, int x, int y, int width, float percent, Color color)
         {
-            // Label (Simplified: just a colored block for now as we don't have fonts loaded)
-            // In a real scenario, use SpriteFont.
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, width, 15), Color.Black * 0.4f);
+            // Draw Label using bitmapped font
+            DrawString(label, x, y, 2, Color.White * 0.9f);
             
             // Bar Background
             _spriteBatch.Draw(_pixel, new Rectangle(x, y + 18, width, 22), Color.Black * 0.6f);

@@ -10,7 +10,7 @@ A grid-based tower defense game built with C# and MonoGame.
 - **Primitive Rendering:** Graphics are drawn using primitive shapes.
 
 ## Tech Stack
-- **Framework:** MonoGame (.NET 6.0)
+- **Framework:** MonoGame (.NET 8.0)
 - **Architecture:** Manager-based pattern
 - **Algorithms:** A* Pathfinding, Binary Heap
 
@@ -22,7 +22,7 @@ A grid-based tower defense game built with C# and MonoGame.
 - `Utils/`: Utility classes including object pools and priority queues.
 
 ## Execution
-Requires .NET 6.0 SDK.
+Requires .NET 8.0 SDK.
 
 ```bash
 dotnet build

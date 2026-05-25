@@ -69,6 +69,10 @@ namespace TacticalDefenseGame.Entities
                     Speed = 70f; Health = 120f; MaxHealth = 120f; Color = Color.Crimson; ScrapValue = 25f;
                     AbilityRange = 80f; AbilityPower = 15f; AbilityCooldown = 2.0f;
                     break;
+                case EnemyType.Harbinger:
+                    Speed = 30f; Health = 1500f; MaxHealth = 1500f; Color = Color.DarkSlateBlue; ScrapValue = 200f;
+                    AbilityRange = 200f; AbilityPower = 10f; AbilityCooldown = 4.0f; // EMP/Pulse potential
+                    break;
             }
             MaxHealth = Health;
             _abilityTimer = 0f;
@@ -146,10 +150,11 @@ namespace TacticalDefenseGame.Entities
             }
             else if (_path != null && _currentPathIndex < _path.Count)
             {
-                // Strikers stop moving if they are attacking a node
-                if (Type == EnemyType.Striker && IsAttacking)
+                // Strikers stop moving if they are attacking a node, 
+                // but move a bit if their ability is on cooldown (to simulate pushing through)
+                if (Type == EnemyType.Striker && IsAttacking && _abilityTimer > AbilityCooldown * 0.5f)
                 {
-                    // Do nothing, just stay put and attack
+                    // Stay put during the actual impact/recoil phase
                 }
                 else
                 {
@@ -231,6 +236,7 @@ namespace TacticalDefenseGame.Entities
 
             int size = (Type == EnemyType.Tank) ? 26 : 20;
             if (Type == EnemyType.Speedster) size = 14;
+            if (Type == EnemyType.Harbinger) size = 42; // Boss size
 
             Rectangle rect = new Rectangle((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size);
             spriteBatch.Draw(pixel, rect, Color);

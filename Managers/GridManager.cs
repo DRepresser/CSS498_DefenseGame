@@ -10,8 +10,8 @@ namespace TacticalDefenseGame.Managers
 {
     public class GridManager
     {
-        public const int GridSize = 15;
-        public const int CellSize = 40;
+        public const int GridSize = 20;
+        public const int CellSize = 48;
         private Cell[,] _grid;
 
         // Anti-Juggling

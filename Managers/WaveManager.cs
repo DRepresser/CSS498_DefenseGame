@@ -67,11 +67,20 @@ namespace TacticalDefenseGame.Managers
             
             // Determine type based on wave
             EnemyType type = EnemyType.Standard;
-            if (CurrentWave >= 2 && _enemiesSpawned % 5 == 0) type = EnemyType.Speedster;
-            if (CurrentWave >= 3 && _enemiesSpawned % 7 == 0) type = EnemyType.Tank;
-            if (CurrentWave >= 4 && _enemiesSpawned % 9 == 0) type = EnemyType.Phaser;
-            if (CurrentWave >= 3 && _enemiesSpawned % 11 == 0) type = EnemyType.Striker;
-            if (CurrentWave >= 4 && _enemiesSpawned % 13 == 0) type = EnemyType.Support;
+            
+            // Boss Spawning
+            if (CurrentWave % 5 == 0 && _enemiesSpawned == _enemiesToSpawn)
+            {
+                type = EnemyType.Harbinger;
+            }
+            else
+            {
+                if (CurrentWave >= 2 && _enemiesSpawned % 5 == 0) type = EnemyType.Speedster;
+                if (CurrentWave >= 3 && _enemiesSpawned % 7 == 0) type = EnemyType.Tank;
+                if (CurrentWave >= 4 && _enemiesSpawned % 9 == 0) type = EnemyType.Phaser;
+                if (CurrentWave >= 3 && _enemiesSpawned % 11 == 0) type = EnemyType.Striker;
+                if (CurrentWave >= 4 && _enemiesSpawned % 13 == 0) type = EnemyType.Support;
+            }
 
             var path = gridManager.FindPath(spawnPoint, corePoint);
             Vector2 startPos = new Vector2(
