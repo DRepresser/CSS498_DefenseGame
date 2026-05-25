@@ -1,0 +1,22 @@
+# .gitignore for MonoGame / C# Project
+
+# Build Folders
+bin/
+obj/
+
+# Local User Settings
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE Folders
+.vs/
+.vscode/
+
+# Project Specific
+telemetry.json
+
+# OS Specific
+.DS_Store
+Thumbs.db

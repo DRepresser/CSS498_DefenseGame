@@ -20,6 +20,7 @@ namespace TacticalDefenseGame.Core
         private EntityManager _entityManager;
         private ResourceManager _resourceManager;
         private WaveManager _waveManager;
+        private TelemetryManager _telemetryManager;
 
         // Points of Interest
         private Point _spawnPoint = new Point(0, 7);
@@ -47,8 +48,10 @@ namespace TacticalDefenseGame.Core
         {
             _gridManager = new GridManager();
             _entityManager = new EntityManager();
+            _entityManager.Initialize(_gridManager); // Subscribe to events
             _resourceManager = new ResourceManager(100f); // Start with 100 energy
             _waveManager = new WaveManager();
+            _telemetryManager = new TelemetryManager();
             _currentState = GameState.Gameplay;
 
             base.Initialize();
@@ -84,13 +87,13 @@ namespace TacticalDefenseGame.Core
 
                     if (_resourceManager.Energy >= 25f) // Cost of node
                     {
-                        var tempNode = new Node(new Point(gridX, gridY));
                         if (_gridManager.CanPlaceNode(gridX, gridY, _spawnPoint, _corePoint))
                         {
-                            _resourceManager.TrySpendEnergy(tempNode.Cost);
-                            tempNode.Facing = _currentFacing;
-                            _gridManager.PlaceNode(gridX, gridY, tempNode);
-                            _entityManager.AddNode(tempNode);
+                            _resourceManager.TrySpendEnergy(25f);
+                            _telemetryManager.RecordEnergySpent(25f);
+                            var node = _entityManager.GetNodeFromPool(new Point(gridX, gridY), _currentFacing);
+                            _gridManager.PlaceNode(gridX, gridY, node);
+                            // Node is added to EntityManager via Event
                         }
                     }
                 }
@@ -98,30 +101,43 @@ namespace TacticalDefenseGame.Core
                 {
                     int gridX = mouseState.X / GridManager.CellSize;
                     int gridY = mouseState.Y / GridManager.CellSize;
-                    _gridManager.RemoveNode(gridX, gridY);
-                    _entityManager.RemoveNodeAt(new Point(gridX, gridY));
+                    _gridManager.RemoveNode(gridX, gridY, _spawnPoint, _corePoint);
+                    // Node is removed from EntityManager via Event
                 }
                 if (keyboardState.IsKeyDown(Keys.Space) && _lastKeyboardState.IsKeyUp(Keys.Space))
                 {
                     if (!_waveManager.IsWaveActive())
+                    {
+                        if (_waveManager.CurrentWave > 0)
+                            _telemetryManager.EndWave(_resourceManager.CoreHealth);
+
                         _waveManager.StartNextWave();
+                        _telemetryManager.StartWave(_waveManager.CurrentWave);
+                    }
                 }
 
+                _gridManager.Update(gameTime);
                 _resourceManager.Update(gameTime);
                 int reachedCore = _entityManager.Update(gameTime);
                 if (reachedCore > 0)
                 {
-                    _resourceManager.TakeDamage(reachedCore * 10f); // 10 damage per enemy
+                    float damage = reachedCore * 10f;
+                    _resourceManager.TakeDamage(damage); // 10 damage per enemy
+                    _telemetryManager.RecordDamageTaken(damage);
                 }
 
                 _waveManager.Update(gameTime, _entityManager, _gridManager, _spawnPoint, _corePoint);
 
                 if (_resourceManager.CoreHealth <= 0)
                 {
+                    _telemetryManager.EndWave(_resourceManager.CoreHealth);
+                    _telemetryManager.ExportToJson("telemetry.json");
                     _currentState = GameState.GameOver;
                 }
                 else if (_waveManager.AllWavesComplete)
                 {
+                    _telemetryManager.EndWave(_resourceManager.CoreHealth);
+                    _telemetryManager.ExportToJson("telemetry.json");
                     _currentState = GameState.Victory;
                 }
 
@@ -144,9 +160,12 @@ namespace TacticalDefenseGame.Core
         {
             GraphicsDevice.Clear(Color.Black);
 
+            var mouseState = Mouse.GetState();
+            Point hoveredCell = new Point(mouseState.X / GridManager.CellSize, mouseState.Y / GridManager.CellSize);
+
             _spriteBatch.Begin();
 
-            _gridManager.Draw(_spriteBatch, _pixel);
+            _gridManager.Draw(_spriteBatch, _pixel, hoveredCell, _entityManager.ActiveEnemies);
             
             // Highlight Spawn and Core
             _spriteBatch.Draw(_pixel, new Rectangle(_spawnPoint.X * GridManager.CellSize, _spawnPoint.Y * GridManager.CellSize, GridManager.CellSize, GridManager.CellSize), Color.Green * 0.5f);
