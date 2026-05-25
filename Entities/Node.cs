@@ -16,27 +16,27 @@ namespace TacticalDefenseGame.Entities
         // Stamina & Thermal Management
         public float MaxStamina = 100f;
         public float CurrentStamina;
-        public float BaseCoolingRate = 10f; // R_base
+        public float BaseCoolingRate = 15f; // R_base
 
         // Health & Durability
         public float MaxHealth = 100f;
         public float Health;
 
         // Synergy Specializations
-        public float SynergyBonus = 0f; // beta_synergy (Stamina Regen)
+        public float SynergyBonus = 0f; // beta_synergy
         public float SynergyRangeBonus = 0f; // Range boost
         public float SynergyCostMultiplier = 1.0f; // Cost efficiency
 
-        public float ActionCost = 15f; // C_action
+        public float ActionCost = 10f; // C_action
         
         // Non-Linear Heat Scaling
         public float HeatModifier = 1.0f; // alpha
-        public float HeatIncrement = 0.15f; // Base increment per shot
-        public float HeatDecay = 0.4f; // alpha decay per second
-        public float HeatExponent = 1.5f; // Exponential growth factor
+        public float HeatIncrement = 0.08f; // Base increment per shot
+        public float HeatDecay = 0.6f; // alpha decay per second
+        public float HeatExponent = 1.3f; // Exponential growth factor
         
         // Heat Soak: Regeneration is penalized at high heat
-        public float HeatSoakThreshold = 2.0f; // Heat level where soak begins
+        public float HeatSoakThreshold = 3.0f; // Heat level where soak begins
         public float HeatSoakPenalty = 0.5f; // Max regeneration multiplier at high heat
         
         public bool IsOverheated { get; private set; }
@@ -50,6 +50,7 @@ namespace TacticalDefenseGame.Entities
         public NodeSpecialization Specialization = NodeSpecialization.None;
         public bool IsPowered = true;
         public float SuppressionMultiplier = 1.0f; // 1.0 = normal, >1.0 = debuffed
+        public bool IsNearPowerPlant = false; // Negates Logistics Strain if true
 
         // State Effects
         private List<SteamParticle> _particles = new();
@@ -81,6 +82,7 @@ namespace TacticalDefenseGame.Entities
             SynergyBonus = 0;
             SynergyRangeBonus = 0;
             SynergyCostMultiplier = 1.0f;
+            IsNearPowerPlant = false;
             Rank = 1;
             Experience = 0;
             Specialization = NodeSpecialization.None;
@@ -151,30 +153,27 @@ namespace TacticalDefenseGame.Entities
                 if (_overheatTimer <= 0)
                 {
                     IsOverheated = false;
-                    CurrentStamina = MaxStamina * 0.2f; // Return with some stamina
                     HeatModifier = 1.0f;
                 }
             }
-            else
+
+            // Always Regenerate Stamina and Decay Heat
+            float soakMultiplier = 1.0f;
+            if (HeatModifier > HeatSoakThreshold)
             {
-                // Calculate Heat Soak Multiplier: scales from 1.0 to HeatSoakPenalty
-                float soakMultiplier = 1.0f;
-                if (HeatModifier > HeatSoakThreshold)
-                {
-                    // Linear falloff between threshold and a theoretical "max" heat (e.g. 5.0)
-                    float t = MathHelper.Clamp((HeatModifier - HeatSoakThreshold) / 3.0f, 0, 1);
-                    soakMultiplier = MathHelper.Lerp(1.0f, HeatSoakPenalty, t);
-                }
+                float t = MathHelper.Clamp((HeatModifier - HeatSoakThreshold) / 3.0f, 0, 1);
+                soakMultiplier = MathHelper.Lerp(1.0f, HeatSoakPenalty, t);
+            }
 
-                // Regenerate Stamina: (R_base + beta_synergy) * soak * t
-                float powerMult = IsPowered ? 1.0f : 0.2f; // 80% penalty if not powered
-                CurrentStamina += (BaseCoolingRate + SynergyBonus) * soakMultiplier * powerMult * dt;
-                if (CurrentStamina > MaxStamina) CurrentStamina = MaxStamina;
+            float powerMult = IsPowered ? 1.0f : 0.2f;
+            CurrentStamina += (BaseCoolingRate + SynergyBonus) * soakMultiplier * powerMult * dt;
+            if (CurrentStamina > MaxStamina) CurrentStamina = MaxStamina;
 
-                // Decay Heat Modifier
-                HeatModifier -= HeatDecay * dt;
-                if (HeatModifier < 1.0f) HeatModifier = 1.0f;
+            HeatModifier -= HeatDecay * dt;
+            if (HeatModifier < 1.0f) HeatModifier = 1.0f;
 
+            if (!IsOverheated)
+            {
                 _fireTimer += dt;
             }
 
@@ -189,19 +188,17 @@ namespace TacticalDefenseGame.Entities
             }
         }
 
-        public bool CanFire(float heatMult = 1.0f)
+        public bool CanFire(float heatMult = 1.0f, float armyMult = 1.0f)
         {
             if (IsOverheated) return false;
 
-            // Apply Suppression Multiplier: 
-            // - Slower FireRate (Higher interval)
-            // - Higher Stamina Cost
+            // Apply Suppression Multiplier and Army Scaling
+            float effectiveArmyMult = IsNearPowerPlant ? 1.0f : armyMult;
             float suppressedFireRate = FireRate / SuppressionMultiplier;
-            float suppressedActionCost = ActionCost * SuppressionMultiplier;
+            float suppressedActionCost = ActionCost * SuppressionMultiplier * effectiveArmyMult;
 
             if (_fireTimer >= 1.0f / suppressedFireRate)
             {
-                // Calculate non-linear shot cost with Synergy Cost Multiplier
                 float effectiveAlpha = (float)Math.Pow(HeatModifier, HeatExponent);
                 float cost = suppressedActionCost * effectiveAlpha * SynergyCostMultiplier;
                 
@@ -214,10 +211,8 @@ namespace TacticalDefenseGame.Entities
                 }
                 else
                 {
-                    // Trigger Overheat
                     IsOverheated = true;
                     _overheatTimer = OverheatCooldown;
-                    // Note: Modifier is NOT reset here to simulate "heat soak" during cooldown
                     return false;
                 }
             }
@@ -249,13 +244,12 @@ namespace TacticalDefenseGame.Entities
 
         private bool IsInSector(Vector2 targetPos)
         {
-            // Simple 90-degree sector check based on facing
             Vector2 toTarget = targetPos - Position;
             float angle = (float)Math.Atan2(toTarget.Y, toTarget.X);
             float facingAngle = GetFacingAngle();
 
             float diff = MathHelper.WrapAngle(angle - facingAngle);
-            return Math.Abs(diff) <= MathHelper.PiOver4; // 90 degrees total arc
+            return Math.Abs(diff) <= MathHelper.PiOver4;
         }
 
         private float GetFacingAngle()
@@ -275,13 +269,11 @@ namespace TacticalDefenseGame.Entities
             float angle = TurretAngle;
             Vector2 directionVec = new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle));
             
-            // 1. Draw "Wall" (Base Rect)
-            Color wallColor = Specialization switch
-            {
-                NodeSpecialization.Cryo => new Color(9, 24, 42),
-                NodeSpecialization.ArmorPiercing => new Color(30, 8, 8),
-                _ => new Color(42, 42, 42)
-            };
+            // 1. Draw "Wall" (Base Rect - Fixed dark color)
+            Color wallColor = new Color(42, 42, 42); // Standard Dark Gray
+            if (Specialization == NodeSpecialization.Cryo) wallColor = new Color(9, 24, 42);
+            else if (Specialization == NodeSpecialization.ArmorPiercing) wallColor = new Color(30, 8, 8);
+            
             Color strokeColor = Specialization switch
             {
                 NodeSpecialization.Cryo => new Color(77, 217, 255),
@@ -293,18 +285,18 @@ namespace TacticalDefenseGame.Entities
             spriteBatch.Draw(pixel, baseRect, wallColor);
             DrawBorder(spriteBatch, pixel, baseRect, 1, strokeColor);
 
-            // 2. Draw Corner Turrets / Details
+            // 2. Corner turrets
             int detSize = 8;
             spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 18, (int)Position.Y - 18, detSize, detSize), strokeColor * 0.5f);
             spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 18 - detSize, (int)Position.Y - 18, detSize, detSize), strokeColor * 0.5f);
             spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 18, (int)Position.Y + 18 - detSize, detSize, detSize), strokeColor * 0.5f);
             spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 18 - detSize, (int)Position.Y + 18 - detSize, detSize, detSize), strokeColor * 0.5f);
 
-            // 3. Draw Platform (Inner Circle)
+            // 3. Platform
             DrawRadialBar(spriteBatch, pixel, Position, 12f, 1.0f, wallColor * 1.5f);
             DrawBorder(spriteBatch, pixel, new Rectangle((int)Position.X - 10, (int)Position.Y - 10, 20, 20), 1, strokeColor * 0.3f);
 
-            // 4. Draw Barrel (Matches TurretAngle)
+            // 4. Barrel
             Vector2 barrelEnd = Position + directionVec * 20;
             Color barrelColor = Specialization switch
             {
@@ -313,60 +305,56 @@ namespace TacticalDefenseGame.Entities
                 _ => new Color(48, 48, 48)
             };
             DrawLine(spriteBatch, pixel, Position, barrelEnd, 6, barrelColor);
-            DrawLine(spriteBatch, pixel, Position, barrelEnd, 2, strokeColor * 0.5f); // Barrel highlight
+            DrawLine(spriteBatch, pixel, Position, barrelEnd, 2, strokeColor * 0.5f);
 
             // 5. Specialized Details
             if (Specialization == NodeSpecialization.Cryo)
-            {
-                // Ice Spikes / Glow
                 DrawRadialBar(spriteBatch, pixel, barrelEnd, 4f, 1.0f, new Color(128, 238, 255));
-            }
             else if (Specialization == NodeSpecialization.ArmorPiercing)
             {
-                // Heat Sinks / Emitter
                 Vector2 perp = new Vector2(-directionVec.Y, directionVec.X);
                 DrawLine(spriteBatch, pixel, Position + directionVec * 10 + perp * 6, Position + directionVec * 10 - perp * 6, 2, strokeColor);
                 DrawRadialBar(spriteBatch, pixel, barrelEnd, 3f, 1.0f, Color.Red);
             }
 
-            // 6. Draw Steam Particles
+            // 6. Particles
             foreach (var p in _particles)
             {
                 float alpha = 1.0f - (p.Life / p.MaxLife);
                 spriteBatch.Draw(pixel, new Rectangle((int)(Position.X + p.Offset.X), (int)(Position.Y + p.Offset.Y), 4, 4), Color.White * 0.6f * alpha);
             }
 
-            // 7. Draw Radial Stamina Ring
+            // 7. Stamina Ring (Minimal: Only show when not full)
             float staminaPercent = CurrentStamina / MaxStamina;
-            Color barColor = IsOverheated ? Color.Orange : Color.Cyan;
-            if (HeatModifier > HeatSoakThreshold) barColor = Color.Lerp(barColor, Color.Yellow, (HeatModifier - HeatSoakThreshold) / 2f);
-            DrawRadialBar(spriteBatch, pixel, Position, 22f, staminaPercent, barColor * 0.8f);
+            if (staminaPercent < 0.99f || IsOverheated)
+            {
+                Color barColor = IsOverheated ? Color.Orange : Color.Cyan;
+                if (HeatModifier > HeatSoakThreshold) barColor = Color.Lerp(barColor, Color.Yellow, (HeatModifier - HeatSoakThreshold) / 2f);
+                DrawRadialBar(spriteBatch, pixel, Position, 19f, staminaPercent, barColor * 0.6f);
+            }
 
-            // 8. XP Bar / Indicators
+            // 8. Indicators
             if (Specialization == NodeSpecialization.None && Rank < 2)
             {
                 float xpPercent = Experience / ExperienceToNextRank;
                 spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y + 22, 30, 4), Color.Black * 0.5f);
                 spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y + 22, (int)(30 * xpPercent), 4), Color.White * 0.8f);
             }
-
-            if (Rank >= 2)
-                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 4, (int)Position.Y - 26, 8, 8), Color.Gold);
-
+            if (Rank >= 2) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 4, (int)Position.Y - 26, 8, 8), Color.Gold);
             if (IsOverheated)
             {
                 int secondsLeft = (int)Math.Ceiling(_overheatTimer);
                 DrawDigit(spriteBatch, pixel, secondsLeft, Position - new Vector2(4, 34), 3, Color.Red);
             }
 
-            // Synergy / Power Indicators
             if (SynergyBonus > 0) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 12, (int)Position.Y - 12, 4, 4), Color.Lime);
             if (SynergyRangeBonus > 0) spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 8, (int)Position.Y - 12, 4, 4), Color.Cyan);
             if (SynergyCostMultiplier < 1.0f) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 12, (int)Position.Y + 8, 4, 4), Color.Gold);
             if (!IsPowered) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 2, (int)Position.Y - 2, 4, 4), Color.Red);
             if (SuppressionMultiplier > 1.0f) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 6, (int)Position.Y + 8, 4, 4), Color.Purple);
+            if (IsNearPowerPlant) spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 2, (int)Position.Y + 2, 4, 4), Color.Yellow);
 
-            // 9. Node Health Bar
+            // 9. Health Bar
             if (Health < MaxHealth)
             {
                 spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y - 20, 30, 4), Color.Black * 0.5f);
@@ -376,7 +364,7 @@ namespace TacticalDefenseGame.Entities
 
         private void DrawRadialBar(SpriteBatch spriteBatch, Texture2D pixel, Vector2 center, float radius, float percent, Color color)
         {
-            const int segments = 20;
+            const int segments = 60; // Increased for smoothness
             const float step = MathHelper.TwoPi / segments;
             for (int i = 0; i < segments; i++)
             {
@@ -385,7 +373,8 @@ namespace TacticalDefenseGame.Entities
                 {
                     float angle = i * step - MathHelper.PiOver2;
                     Vector2 pos = center + new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * radius;
-                    spriteBatch.Draw(pixel, new Rectangle((int)pos.X - 2, (int)pos.Y - 2, 4, 4), color);
+                    // Draw 1x1 point for minimal look
+                    spriteBatch.Draw(pixel, new Rectangle((int)pos.X, (int)pos.Y, 1, 1), color);
                 }
             }
         }
@@ -394,15 +383,15 @@ namespace TacticalDefenseGame.Entities
         {
             bool[,] segments = digit switch
             {
-                1 => new[,] { { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false } },
-                2 => new[,] { { true, true, true }, { false, false, true }, { true, true, true }, { true, false, false }, { true, true, true } },
-                3 => new[,] { { true, true, true }, { false, false, true }, { true, true, true }, { false, false, true }, { true, true, true } },
-                _ => new[,] { { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false } }
+                1 => new[,] { { false, false, true, false, false }, { false, true, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, true, true, true, false } },
+                2 => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { false, false, false, false, true }, { false, false, true, true, false }, { false, true, false, false, false }, { true, false, false, false, false }, { true, true, true, true, true } },
+                3 => new[,] { { true, true, true, true, true }, { false, false, false, true, false }, { false, false, true, false, false }, { false, false, false, true, false }, { false, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                _ => new[,] { { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false } }
             };
 
-            for (int y = 0; y < 5; y++)
+            for (int y = 0; y < 7; y++)
             {
-                for (int x = 0; x < 3; x++)
+                for (int x = 0; x < 5; x++)
                 {
                     if (segments[y, x])
                     {

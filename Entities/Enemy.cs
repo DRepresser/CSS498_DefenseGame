@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -20,6 +21,7 @@ namespace TacticalDefenseGame.Entities
         public float AbilityRange = 100f;
         public float AbilityPower = 10f; // Healing or Damage
         public float AuraRange = 0f;
+        public float CoreDamage = 10f; // Damage dealt upon reaching core
         public bool IsAttacking = false;
 
         private float _speedMultiplier = 1.0f;
@@ -36,7 +38,7 @@ namespace TacticalDefenseGame.Entities
             IsActive = false;
         }
 
-        public void Initialize(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint)
+        public void Initialize(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint, int currentWave)
         {
             Type = type;
             Position = startPosition;
@@ -68,14 +70,21 @@ namespace TacticalDefenseGame.Entities
                     break;
                 case EnemyType.Striker:
                     Speed = 70f; Health = 120f; MaxHealth = 120f; Color = Color.Crimson; ScrapValue = 25f;
-                    AbilityRange = 80f; AbilityPower = 15f; AbilityCooldown = 2.0f;
+                    AbilityRange = 80f; AbilityPower = 25f; AbilityCooldown = 2.0f;
                     break;
                 case EnemyType.Harbinger:
                     Speed = 30f; Health = 1500f; MaxHealth = 1500f; Color = Color.DarkSlateBlue; ScrapValue = 200f;
-                    AbilityRange = 200f; AbilityPower = 10f; AbilityCooldown = 4.0f; 
+                    AbilityRange = 200f; AbilityPower = 30f; AbilityCooldown = 4.0f; 
                     AuraRange = 100f; // 2 grid radius
+                    CoreDamage = 50f;
                     break;
             }
+
+            // Apply Wave Scaling: +15% per wave (compounded)
+            float multiplier = (float)Math.Pow(1.15, currentWave - 1);
+            Health *= multiplier;
+            AbilityPower *= multiplier;
+
             MaxHealth = Health;
             _abilityTimer = 0f;
             IsAttacking = false;

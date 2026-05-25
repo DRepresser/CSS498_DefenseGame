@@ -138,12 +138,12 @@ namespace TacticalDefenseGame.Core
 
                     if (mouseState.LeftButton == ButtonState.Pressed && vMouseY >= HudHeight)
                     {
-                        if (_resourceManager.Energy >= 15f)
+                        if (_resourceManager.Energy >= 25f) // Cost: 25
                         {
                             if (_gridManager.CanPlaceNode(gridX, gridY, _spawnPoint, _corePoint, _entityManager.ActiveEnemies))
                             {
-                                _resourceManager.TrySpendEnergy(15f);
-                                _telemetryManager.RecordEnergySpent(15f);
+                                _resourceManager.TrySpendEnergy(25f);
+                                _telemetryManager.RecordEnergySpent(25f);
                                 var node = _entityManager.GetNodeFromPool(new Point(gridX, gridY), _currentFacing);
                                 _gridManager.PlaceNode(gridX, gridY, node, _corePoint);
                             }
@@ -162,12 +162,12 @@ namespace TacticalDefenseGame.Core
                         {
                             if (keyboardState.IsKeyDown(Keys.D1) && _lastKeyboardState.IsKeyUp(Keys.D1))
                             {
-                                if (_resourceManager.TrySpendScrap(30f))
+                                if (_resourceManager.TrySpendScrap(40f)) // Cost: 40
                                     hoveredCell.OccupyingNode.Specialization = NodeSpecialization.Cryo;
                             }
                             else if (keyboardState.IsKeyDown(Keys.D2) && _lastKeyboardState.IsKeyUp(Keys.D2))
                             {
-                                if (_resourceManager.TrySpendScrap(30f))
+                                if (_resourceManager.TrySpendScrap(40f)) // Cost: 40
                                     hoveredCell.OccupyingNode.Specialization = NodeSpecialization.ArmorPiercing;
                             }
                         }
@@ -187,12 +187,11 @@ namespace TacticalDefenseGame.Core
 
                     _gridManager.Update(gameTime);
                     _resourceManager.Update(gameTime);
-                    int reachedCore = _entityManager.Update(gameTime, _spawnPoint, _corePoint);
-                    if (reachedCore > 0)
+                    int reachedCoreCount = _entityManager.Update(gameTime, _spawnPoint, _corePoint, out float totalCoreDamage);
+                    if (reachedCoreCount > 0)
                     {
-                        float damage = reachedCore * 10f;
-                        _resourceManager.TakeDamage(damage);
-                        _telemetryManager.RecordDamageTaken(damage);
+                        _resourceManager.TakeDamage(totalCoreDamage);
+                        _telemetryManager.RecordDamageTaken(totalCoreDamage);
                     }
 
                     _waveManager.Update(gameTime, _entityManager, _gridManager, _spawnPoint, _corePoint);
@@ -349,39 +348,48 @@ namespace TacticalDefenseGame.Core
 
         private void DrawHelpOverlay()
         {
-            Rectangle bg = new Rectangle(50, 100, _virtualWidth - 100, _virtualHeight - 200);
-            _spriteBatch.Draw(_pixel, bg, Color.Black * 0.9f);
-            DrawBorder(_spriteBatch, _pixel, bg, 4, Color.Gray);
+            Rectangle bg = new Rectangle(50, 50, _virtualWidth - 100, _virtualHeight - 100);
+            _spriteBatch.Draw(_pixel, bg, Color.Black * 0.95f);
+            DrawBorder(_spriteBatch, _pixel, bg, 4, Color.Cyan * 0.5f);
 
-            int x = 80; int y = 130;
-            DrawString("GAME INFO", x, y, 4, Color.White); y += 60;
+            int x = 80; int y = 80;
+            DrawString("GAME BRIEFING", x + 200, y, 4, Color.Cyan); y += 80;
+
+            // Section Helper
+            Action<string, Color> drawHeader = (txt, col) => {
+                DrawString(txt, x, y, 2, col);
+                DrawLine(_spriteBatch, _pixel, new Vector2(x, y + 20), new Vector2(x + 300, y + 20), 2, col * 0.5f);
+                y += 35;
+            };
 
             // 1. Hazards
-            DrawString("MAP HAZARDS", x, y, 2, Color.Yellow); y += 30;
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.Black); DrawString("OBSTACLE-WALL", x + 30, y, 2, Color.White); y += 25;
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.OrangeRed * 0.6f); DrawString("VOLCANIC-HEAT UP", x + 30, y, 2, Color.White); y += 25;
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.DarkGreen * 0.6f); DrawString("CORROSIVE-DMG ENEMY", x + 30, y, 2, Color.White); y += 40;
+            drawHeader("MAP HAZARDS", Color.Yellow);
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.Black); DrawString("OBSTACLE: UNBUILDABLE WALL", x + 35, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.OrangeRed * 0.6f); DrawString("VOLCANIC: +50% UNIT HEAT GEN", x + 35, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 20, 20), Color.DarkGreen * 0.6f); DrawString("CORROSIVE: 5 DPS TO ENEMIES", x + 35, y, 2, Color.White); y += 45;
 
             // 2. Power Grid
-            DrawString("INFRASTRUCTURE", x, y, 2, Color.Yellow); y += 30;
-            DrawString("CONNECT NODES TO CORE (BLUE)", x, y, 2, Color.White); y += 25;
-            DrawString("UNPOWERED (RED DOT) = 80% REGEN PENALTY", x, y, 2, Color.White); y += 40;
+            drawHeader("INFRASTRUCTURE", Color.Yellow);
+            DrawString("CONNECT ALL NODES TO CORE (BLUE)", x, y, 2, Color.White); y += 25;
+            DrawString("UNPOWERED (RED DOT): 80% REGEN PENALTY", x, y, 2, Color.White); y += 45;
 
             // 3. Combat
-            DrawString("COMBAT & PROGRESSION", x, y, 2, Color.Yellow); y += 30;
-            DrawString("UNIT ATTACK IN 90 DEGREE ARC", x, y, 2, Color.White); y += 25;
-            DrawString("XP -> RANK 2 -> SPEC (1=CRYO 2=AP)", x, y, 2, Color.White); y += 40;
+            drawHeader("COMBAT & PROGRESSION", Color.Yellow);
+            DrawString("UNITS ATTACK IN 90 DEGREE FRONT ARC", x, y, 2, Color.White); y += 25;
+            DrawString("GAIN XP -> RANK 2 -> SPEC (1=CRYO 2=AP)", x, y, 2, Color.White); y += 45;
 
             // 4. Enemy
-            DrawString("ENEMY TYPES", x, y, 2, Color.Yellow); y += 30;
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.LimeGreen); DrawString("SUPPORT-HEALER", x + 25, y, 2, Color.White); y += 25;
-            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.Crimson); DrawString("STRIKER-SIEGE UNIT", x + 25, y, 2, Color.White); y += 40;
+            drawHeader("ENEMY AI", Color.Yellow);
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.LimeGreen); DrawString("SUPPORT: AOE ALLY HEALER", x + 30, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.Crimson); DrawString("STRIKER: SIEGE (ATTACKS UNITS)", x + 30, y, 2, Color.White); y += 25;
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, 15, 15), Color.DarkSlateBlue); DrawString("HARBINGER: BOSS + DEBUFF AURA", x + 30, y, 2, Color.White); y += 45;
 
             // 5. Economy
-            DrawString("RESOURCE ECONOMY", x, y, 2, Color.Yellow); y += 30;
-            DrawString("ENERGY:BUILDING (15)  SCRAP:SPEC (30)", x, y, 2, Color.White); y += 50;
+            drawHeader("RESOURCE ECONOMY", Color.Yellow);
+            DrawString("ENERGY: PLACEMENT (30) - REGENS OVER TIME", x, y, 2, Color.White); y += 25;
+            DrawString("SCRAP : SPECIALIZATION (60) - DROPPED BY FOES", x, y, 2, Color.White); y += 60;
 
-            DrawString("PRESS SPACE OR CLICK ICON TO CLOSE", x, bg.Height + 60, 2, Color.Gray);
+            DrawString("PRESS SPACE OR CLICK ICON TO DISMISS", x + 180, bg.Height + 10, 2, Color.Cyan * 0.7f);
         }
 
         private void DrawString(string text, int x, int y, int size, Color color)
@@ -391,51 +399,53 @@ namespace TacticalDefenseGame.Core
             {
                 if (c >= '0' && c <= '9') DrawDigit(c - '0', new Vector2(curX, y), size, color);
                 else DrawChar(c, new Vector2(curX, y), size, color);
-                curX += size * 5;
+                curX += size * 7; // Wider spacing for 5x7
             }
         }
 
         private void DrawChar(char c, Vector2 pos, int size, Color color)
         {
+            // High Quality 5x7 Bitmapped Font
             bool[,] segments = c switch
             {
-                'A' => new[,] { { false, true, false }, { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true } },
-                'B' => new[,] { { true, true, false }, { true, false, true }, { true, true, false }, { true, false, true }, { true, true, false } },
-                'C' => new[,] { { true, true, true }, { true, false, false }, { true, false, false }, { true, false, false }, { true, true, true } },
-                'D' => new[,] { { true, true, false }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, false } },
-                'E' => new[,] { { true, true, true }, { true, false, false }, { true, true, false }, { true, false, false }, { true, true, true } },
-                'F' => new[,] { { true, true, true }, { true, false, false }, { true, true, false }, { true, false, false }, { true, false, false } },
-                'G' => new[,] { { true, true, true }, { true, false, false }, { true, false, true }, { true, false, true }, { true, true, true } },
-                'H' => new[,] { { true, false, true }, { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true } },
-                'I' => new[,] { { true, true, true }, { false, true, false }, { false, true, false }, { false, true, false }, { true, true, true } },
-                'J' => new[,] { { false, false, true }, { false, false, true }, { false, false, true }, { true, false, true }, { true, true, true } },
-                'K' => new[,] { { true, false, true }, { true, false, true }, { true, true, false }, { true, false, true }, { true, false, true } },
-                'L' => new[,] { { true, false, false }, { true, false, false }, { true, false, false }, { true, false, false }, { true, true, true } },
-                'M' => new[,] { { true, false, true }, { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true } },
-                'N' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true } },
-                'O' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true } },
-                'P' => new[,] { { true, true, true }, { true, false, true }, { true, true, true }, { true, false, false }, { true, false, false } },
-                'Q' => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, true, true }, { false, false, true } },
-                'R' => new[,] { { true, true, true }, { true, false, true }, { true, true, false }, { true, false, true }, { true, false, true } },
-                'S' => new[,] { { true, true, true }, { true, false, false }, { true, true, true }, { false, false, true }, { true, true, true } },
-                'T' => new[,] { { true, true, true }, { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false } },
-                'U' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true } },
-                'V' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, false, true }, { false, true, false } },
-                'W' => new[,] { { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true }, { true, false, true } },
-                'X' => new[,] { { true, false, true }, { true, false, true }, { false, true, false }, { true, false, true }, { true, false, true } },
-                'Y' => new[,] { { true, false, true }, { true, false, true }, { true, true, true }, { false, true, false }, { false, true, false } },
-                'Z' => new[,] { { true, true, true }, { false, false, true }, { false, true, false }, { true, false, false }, { true, true, true } },
-                '?' => new[,] { { true, true, true }, { false, false, true }, { false, true, true }, { false, false, false }, { false, true, false } },
-                ':' => new[,] { { false, false, false }, { false, true, false }, { false, false, false }, { false, true, false }, { false, false, false } },
-                '-' => new[,] { { false, false, false }, { false, false, false }, { true, true, true }, { false, false, false }, { false, false, false } },
-                '(' => new[,] { { false, true, false }, { true, false, false }, { true, false, false }, { true, false, false }, { false, true, false } },
-                '=' => new[,] { { false, false, false }, { true, true, true }, { false, false, false }, { true, true, true }, { false, false, false } },
-                _ => new[,] { { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false } }
+                'A' => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, true, true, true, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true } },
+                'B' => new[,] { { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, false } },
+                'C' => new[,] { { false, true, true, true, true }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { false, true, true, true, true } },
+                'D' => new[,] { { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, false } },
+                'E' => new[,] { { true, true, true, true, true }, { true, false, false, false, false }, { true, false, false, false, false }, { true, true, true, true, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, true, true, true, true } },
+                'F' => new[,] { { true, true, true, true, true }, { true, false, false, false, false }, { true, false, false, false, false }, { true, true, true, true, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false } },
+                'G' => new[,] { { false, true, true, true, true }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, true, true, true }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, true } },
+                'H' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true } },
+                'I' => new[,] { { true, true, true, true, true }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { true, true, true, true, true } },
+                'J' => new[,] { { false, false, false, false, true }, { false, false, false, false, true }, { false, false, false, false, true }, { false, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                'K' => new[,] { { true, false, false, false, true }, { true, false, false, true, false }, { true, false, true, false, false }, { true, true, false, false, false }, { true, false, true, false, false }, { true, false, false, true, false }, { true, false, false, false, true } },
+                'L' => new[,] { { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, true, true, true, true } },
+                'M' => new[,] { { true, false, false, false, true }, { true, true, false, true, true }, { true, false, true, false, true }, { true, false, true, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true } },
+                'N' => new[,] { { true, false, false, false, true }, { true, true, false, false, true }, { true, false, true, false, true }, { true, false, true, false, true }, { true, false, false, true, true }, { true, false, false, false, true }, { true, false, false, false, true } },
+                'O' => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                'P' => new[,] { { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, false, false, false, false } },
+                'Q' => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, true, false, true }, { true, false, false, true, false }, { false, true, true, false, true } },
+                'R' => new[,] { { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { true, true, true, true, false }, { true, false, true, false, false }, { true, false, false, true, false }, { true, false, false, false, true } },
+                'S' => new[,] { { false, true, true, true, true }, { true, false, false, false, false }, { true, false, false, false, false }, { false, true, true, true, false }, { false, false, false, false, true }, { false, false, false, false, true }, { true, true, true, true, false } },
+                'T' => new[,] { { true, true, true, true, true }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false } },
+                'U' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                'V' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, false, true, false }, { false, false, true, false, false } },
+                'W' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { true, false, false, false, true }, { true, false, true, false, true }, { true, false, true, false, true }, { true, true, false, true, true }, { true, false, false, false, true } },
+                'X' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { false, true, false, true, false }, { false, false, true, false, false }, { false, true, false, true, false }, { true, false, false, false, true }, { true, false, false, false, true } },
+                'Y' => new[,] { { true, false, false, false, true }, { true, false, false, false, true }, { false, true, false, true, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false } },
+                'Z' => new[,] { { true, true, true, true, true }, { false, false, false, false, true }, { false, false, false, true, false }, { false, false, true, false, false }, { false, true, false, false, false }, { true, false, false, false, false }, { true, true, true, true, true } },
+                '?' => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { false, false, false, false, true }, { false, false, true, true, false }, { false, false, true, false, false }, { false, false, false, false, false }, { false, false, true, false, false } },
+                ':' => new[,] { { false, false, false, false, false }, { false, false, true, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, true, false, false }, { false, false, false, false, false } },
+                '-' => new[,] { { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, true, true, true, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false } },
+                '(' => new[,] { { false, false, true, false, false }, { false, true, false, false, false }, { false, true, false, false, false }, { false, true, false, false, false }, { false, true, false, false, false }, { false, true, false, false, false }, { false, false, true, false, false } },
+                '=' => new[,] { { false, false, false, false, false }, { false, true, true, true, false }, { false, false, false, false, false }, { false, true, true, true, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false } },
+                '+' => new[,] { { false, false, false, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, true, true, true, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, false, false, false } },
+                _ => new[,] { { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false } }
             };
 
-            for (int y = 0; y < 5; y++)
+            for (int y = 0; y < 7; y++)
             {
-                for (int x = 0; x < 3; x++)
+                for (int x = 0; x < 5; x++)
                 {
                     if (segments[y, x])
                     {
@@ -448,8 +458,8 @@ namespace TacticalDefenseGame.Core
         private void DrawHUD()
         {
             // HUD Background
-            _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, HudHeight), Color.DarkSlateGray);
-            _spriteBatch.Draw(_pixel, new Rectangle(0, HudHeight - 2, _graphics.PreferredBackBufferWidth, 2), Color.Black * 0.5f);
+            _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _virtualWidth, HudHeight), Color.DarkSlateGray);
+            _spriteBatch.Draw(_pixel, new Rectangle(0, HudHeight - 2, _virtualWidth, 2), Color.Black * 0.5f);
 
             // 1. Core HP Bar
             DrawLabeledBar("CORE HP", 10, 10, 150, _resourceManager.CoreHealth / 100f, Color.Crimson);
@@ -464,10 +474,10 @@ namespace TacticalDefenseGame.Core
             DrawNumber((int)_resourceManager.Scrap, 400, 10, 2, Color.White);
 
             // 4. Wave Counter
-            _spriteBatch.Draw(_pixel, new Rectangle(450, 10, 140, HudHeight - 20), Color.Black * 0.3f);
+            _spriteBatch.Draw(_pixel, new Rectangle(450, 10, 160, HudHeight - 20), Color.Black * 0.3f);
             DrawNumber(_waveManager.CurrentWave, 460, 20, 3, Color.White);
-            _spriteBatch.Draw(_pixel, new Rectangle(500, 25, 20, 10), Color.White * 0.5f); // Slash separator block
-            DrawNumber(10, 530, 20, 3, Color.White * 0.7f);
+            _spriteBatch.Draw(_pixel, new Rectangle(505, 25, 20, 10), Color.White * 0.5f); // Slash separator block
+            DrawNumber(10, 540, 20, 3, Color.White * 0.7f);
         }
 
         private void DrawNumber(int number, int x, int y, int size, Color color)
@@ -476,30 +486,31 @@ namespace TacticalDefenseGame.Core
             for (int i = 0; i < s.Length; i++)
             {
                 int digit = s[i] - '0';
-                DrawDigit(digit, new Vector2(x + i * (size * 4), y), size, color);
+                DrawDigit(digit, new Vector2(x + i * (size * 6), y), size, color);
             }
         }
 
         private void DrawDigit(int digit, Vector2 pos, int size, Color color)
         {
+            // High Quality 5x7 Bitmapped Digits
             bool[,] segments = digit switch
             {
-                0 => new[,] { { true, true, true }, { true, false, true }, { true, false, true }, { true, false, true }, { true, true, true } },
-                1 => new[,] { { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false }, { false, true, false } },
-                2 => new[,] { { true, true, true }, { false, false, true }, { true, true, true }, { true, false, false }, { true, true, true } },
-                3 => new[,] { { true, true, true }, { false, false, true }, { true, true, true }, { false, false, true }, { true, true, true } },
-                4 => new[,] { { true, false, true }, { true, false, true }, { true, true, true }, { false, false, true }, { false, false, true } },
-                5 => new[,] { { true, true, true }, { true, false, false }, { true, true, true }, { false, false, true }, { true, true, true } },
-                6 => new[,] { { true, true, true }, { true, false, false }, { true, true, true }, { true, false, true }, { true, true, true } },
-                7 => new[,] { { true, true, true }, { false, false, true }, { false, false, true }, { false, false, true }, { false, false, true } },
-                8 => new[,] { { true, true, true }, { true, false, true }, { true, true, true }, { true, false, true }, { true, true, true } },
-                9 => new[,] { { true, true, true }, { true, false, true }, { true, true, true }, { false, false, true }, { true, true, true } },
-                _ => new[,] { { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false }, { false, false, false } }
+                0 => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, true, true }, { true, false, true, false, true }, { true, true, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                1 => new[,] { { false, false, true, false, false }, { false, true, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, false, true, false, false }, { false, true, true, true, false } },
+                2 => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { false, false, false, false, true }, { false, false, true, true, false }, { false, true, false, false, false }, { true, false, false, false, false }, { true, true, true, true, true } },
+                3 => new[,] { { true, true, true, true, true }, { false, false, false, true, false }, { false, false, true, false, false }, { false, false, false, true, false }, { false, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                4 => new[,] { { false, false, false, true, false }, { false, false, true, true, false }, { false, true, false, true, false }, { true, false, false, true, false }, { true, true, true, true, true }, { false, false, false, true, false }, { false, false, false, true, false } },
+                5 => new[,] { { true, true, true, true, true }, { true, false, false, false, false }, { true, true, true, true, false }, { false, false, false, false, true }, { false, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                6 => new[,] { { false, true, true, true, false }, { true, false, false, false, false }, { true, false, false, false, false }, { true, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                7 => new[,] { { true, true, true, true, true }, { false, false, false, false, true }, { false, false, false, true, false }, { false, false, true, false, false }, { false, true, false, false, false }, { false, true, false, false, false }, { false, true, false, false, false } },
+                8 => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                9 => new[,] { { false, true, true, true, false }, { true, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, true }, { false, false, false, false, true }, { true, false, false, false, true }, { false, true, true, true, false } },
+                _ => new[,] { { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false }, { false, false, false, false, false } }
             };
 
-            for (int y = 0; y < 5; y++)
+            for (int y = 0; y < 7; y++)
             {
-                for (int x = 0; x < 3; x++)
+                for (int x = 0; x < 5; x++)
                 {
                     if (segments[y, x])
                     {

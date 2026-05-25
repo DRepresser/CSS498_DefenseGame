@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Graphics;
 using TacticalDefenseGame.Entities;
 using TacticalDefenseGame.Models;
 using TacticalDefenseGame.Utils;
+using System;
 
 namespace TacticalDefenseGame.Managers
 {
@@ -41,10 +42,10 @@ namespace TacticalDefenseGame.Managers
             _gridManager.NodeRemoved += _ => RecalculateAllPaths();
         }
 
-        public void SpawnEnemy(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint)
+        public void SpawnEnemy(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint, int currentWave)
         {
             Enemy enemy = _enemyPool.Get();
-            enemy.Initialize(type, startPosition, path, corePos, corePoint);
+            enemy.Initialize(type, startPosition, path, corePos, corePoint, currentWave);
             _enemies.Add(enemy);
             _allEntities.Add(enemy);
         }
@@ -105,18 +106,23 @@ namespace TacticalDefenseGame.Managers
         public IReadOnlyList<Enemy> ActiveEnemies => _enemies;
         public IReadOnlyList<Node> ActiveNodes => _nodes;
 
-        public int Update(GameTime gameTime, Point spawn, Point core)
+        public int Update(GameTime gameTime, Point spawn, Point core, out float totalCoreDamage)
         {
             int reachedCoreCount = 0;
+            totalCoreDamage = 0f;
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
-            // 1. Reset Node Debuffs
+            // 1. Calculate Army Multiplier (Logistics Strain)
+            // 2% cost increase per active node (Reduced from 5%)
+            float armyMult = 1.0f + (_nodes.Count * 0.02f);
+
+            // 2. Reset Node Debuffs
             foreach (var node in _nodes)
             {
                 node.SuppressionMultiplier = 1.0f;
             }
 
-            // 2. Unified Update Loop
+            // 3. Unified Update Loop
             for (int i = _allEntities.Count - 1; i >= 0; i--)
             {
                 var entity = _allEntities[i];
@@ -140,7 +146,7 @@ namespace TacticalDefenseGame.Managers
                             if (Vector2.Distance(enemy.Position, node.Position) <= enemy.AuraRange)
                             {
                                 node.SuppressionMultiplier = 1.5f; // 50% penalty
-                                node.TakeDamage(2f * dt); // 2 damage per second
+                                node.TakeDamage(5f * dt); // 5 damage per second
                             }
                         }
                     }
@@ -148,6 +154,7 @@ namespace TacticalDefenseGame.Managers
                     if (enemy.ReachedCore)
                     {
                         reachedCoreCount++;
+                        totalCoreDamage += enemy.CoreDamage;
                         ReturnEnemy(enemy);
                     }
                     else if (!enemy.IsActive)
@@ -179,7 +186,7 @@ namespace TacticalDefenseGame.Managers
                     var target = node.FindTarget(_enemies);
                     node.AimAt(target, dt);
 
-                    if (node.CanFire(heatMult))
+                    if (node.CanFire(heatMult, armyMult))
                     {
                         if (target != null)
                         {
@@ -190,7 +197,7 @@ namespace TacticalDefenseGame.Managers
                 }
             }
 
-            // 3. Execute Advanced Enemy Abilities
+            // 4. Execute Advanced Enemy Abilities
             foreach (var enemy in _enemies)
             {
                 if (!enemy.IsActive) continue;

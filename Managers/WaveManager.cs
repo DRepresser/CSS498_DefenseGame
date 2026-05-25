@@ -92,7 +92,7 @@ namespace TacticalDefenseGame.Managers
                 corePoint.Y * GridManager.CellSize + GridManager.CellSize / 2
             );
 
-            entityManager.SpawnEnemy(type, startPos, path, corePos, corePoint);
+            entityManager.SpawnEnemy(type, startPos, path, corePos, corePoint, CurrentWave);
         }
     }
 }

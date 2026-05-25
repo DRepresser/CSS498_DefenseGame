@@ -48,6 +48,19 @@ namespace TacticalDefenseGame.Managers
                     }
                 }
             }
+
+            // Randomly assign exactly 5 Power Plants
+            int plantsPlaced = 0;
+            while (plantsPlaced < 5)
+            {
+                int rx = rng.Next(2, GridSize - 2);
+                int ry = rng.Next(1, GridSize - 1);
+                if (_grid[rx, ry].Type == CellType.Standard)
+                {
+                    _grid[rx, ry].Type = CellType.PowerPlant;
+                    plantsPlaced++;
+                }
+            }
         }
 
         public (Point spawn, Point core) GenerateRandomPoints()
@@ -63,7 +76,7 @@ namespace TacticalDefenseGame.Managers
                 spawn = new Point(0, rng.Next(0, GridSize));
                 core = new Point(GridSize - 1, rng.Next(0, GridSize));
 
-                // Clear obstacles at spawn/core
+                // Clear obstacles/plants at spawn/core to ensure access
                 GetCell(spawn.X, spawn.Y).Type = CellType.Standard;
                 GetCell(spawn.X, spawn.Y).IsWalkable = true;
                 GetCell(core.X, core.Y).Type = CellType.Standard;
@@ -254,6 +267,21 @@ namespace TacticalDefenseGame.Managers
             }
         }
 
+        public Color GetCellColor(int x, int y)
+        {
+            Cell cell = GetCell(x, y);
+            if (cell == null) return Color.Black;
+
+            return cell.Type switch
+            {
+                CellType.Obstacle => Color.Black,
+                CellType.PowerPlant => Color.Yellow * 0.4f,
+                CellType.Volcanic => Color.OrangeRed * 0.4f,
+                CellType.Corrosive => Color.DarkGreen * 0.4f,
+                _ => (x + y) % 2 == 0 ? Color.DarkSlateGray : Color.SlateGray
+            };
+        }
+
         public void UpdateAllSynergies(Point core)
         {
             // 1. Reset all power statuses
@@ -262,11 +290,13 @@ namespace TacticalDefenseGame.Managers
                 for (int y = 0; y < GridSize; y++)
                 {
                     if (_grid[x, y].OccupyingNode != null)
+                    {
                         _grid[x, y].OccupyingNode.IsPowered = false;
+                    }
                 }
             }
 
-            // 2. BFS from Core to find powered nodes
+            // 2. BFS from Core AND all Power Plants
             Queue<Point> queue = new Queue<Point>();
             HashSet<Point> visited = new HashSet<Point>();
             
@@ -277,6 +307,25 @@ namespace TacticalDefenseGame.Managers
                 {
                     queue.Enqueue(neighbor);
                     visited.Add(neighbor);
+                }
+            }
+
+            // Start BFS from nodes adjacent to Power Plants
+            for (int x = 0; x < GridSize; x++)
+            {
+                for (int y = 0; y < GridSize; y++)
+                {
+                    if (_grid[x, y].Type == CellType.PowerPlant)
+                    {
+                        foreach (var neighbor in GetNeighbors(new Point(x, y)))
+                        {
+                            if (_grid[neighbor.X, neighbor.Y].OccupyingNode != null && !visited.Contains(neighbor))
+                            {
+                                queue.Enqueue(neighbor);
+                                visited.Add(neighbor);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -295,7 +344,7 @@ namespace TacticalDefenseGame.Managers
                 }
             }
 
-            // 3. Calculate synergy bonuses
+            // 3. Calculate synergy bonuses and Power Plant boosts
             for (int x = 0; x < GridSize; x++)
             {
                 for (int y = 0; y < GridSize; y++)
@@ -304,11 +353,23 @@ namespace TacticalDefenseGame.Managers
                     if (node != null)
                     {
                         int neighborCount = 0;
+                        float plantBoost = 0f;
+
                         foreach (var neighborPos in GetNeighbors(new Point(x, y)))
                         {
                             if (_grid[neighborPos.X, neighborPos.Y].OccupyingNode != null)
                             {
                                 neighborCount++;
+                            }
+
+                            if (_grid[neighborPos.X, neighborPos.Y].Type == CellType.PowerPlant)
+                            {
+                                plantBoost += 1.0f; // Simplified check
+                            }
+
+                            if (neighborPos == core)
+                            {
+                                plantBoost += 1.0f; // Core also acts as a safe source
                             }
                         }
 
@@ -316,6 +377,8 @@ namespace TacticalDefenseGame.Managers
                         node.SynergyBonus = neighborCount >= 1 ? 5.0f : 0f;
                         node.SynergyRangeBonus = neighborCount >= 2 ? 30.0f : 0f;
                         node.SynergyCostMultiplier = neighborCount >= 3 ? 0.75f : 1.0f;
+                        
+                        node.IsNearPowerPlant = (plantBoost > 0);
                     }
                 }
             }
@@ -329,19 +392,7 @@ namespace TacticalDefenseGame.Managers
                 for (int y = 0; y < GridSize; y++)
                 {
                     Rectangle rect = new Rectangle(x * CellSize, y * CellSize, CellSize, CellSize);
-                    Cell cell = _grid[x, y];
-                    
-                    Color cellColor = cell.Type switch
-                    {
-                        CellType.Obstacle => Color.Black,
-                        CellType.Volcanic => Color.OrangeRed * 0.4f,
-                        CellType.Corrosive => Color.DarkGreen * 0.4f,
-                        _ => cell.IsWalkable ? 
-                            ((x + y) % 2 == 0 ? Color.DarkSlateGray : Color.SlateGray) : 
-                            Color.DarkRed
-                    };
-                    
-                    spriteBatch.Draw(pixelTexture, rect, cellColor);
+                    spriteBatch.Draw(pixelTexture, rect, GetCellColor(x, y));
                     DrawBorder(spriteBatch, pixelTexture, rect, 1, Color.Black * 0.5f);
                 }
             }
@@ -368,12 +419,11 @@ namespace TacticalDefenseGame.Managers
 
                 if (enemy.Type == EnemyType.Phaser)
                 {
-                    // Draw direct danger line for Phasers
-                    DrawLine(spriteBatch, pixelTexture, enemy.Position, new Vector2(GridSize * CellSize, enemy.Position.Y), 2, Color.Purple * 0.4f);
+                    // Line removed per request
                 }
                 else
                 {
-                    // Could draw path dots for standard enemies, but let's stick to Phaser danger for now
+                    // Could draw path dots for standard enemies
                 }
             }
         }
