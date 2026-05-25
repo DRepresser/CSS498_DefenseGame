@@ -28,24 +28,46 @@ namespace TacticalDefenseGame.Managers
             _nodePool = new ObjectPool<Node>(() => new Node(), initialCapacity: 20);
         }
 
-        public void Initialize(GridManager gridManager)
+        private GridManager _gridManager;
+        private ResourceManager _resourceManager;
+
+        public void Initialize(GridManager gridManager, ResourceManager resourceManager)
         {
-            gridManager.NodePlaced += AddNode;
-            gridManager.NodeRemoved += RemoveNodeAt;
+            _gridManager = gridManager;
+            _resourceManager = resourceManager;
+            _gridManager.NodePlaced += AddNode;
+            _gridManager.NodeRemoved += RemoveNodeAt;
+            _gridManager.NodePlaced += _ => RecalculateAllPaths();
+            _gridManager.NodeRemoved += _ => RecalculateAllPaths();
         }
 
-        public void SpawnEnemy(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos)
+        public void SpawnEnemy(EnemyType type, Vector2 startPosition, List<Point> path, Vector2 corePos, Point corePoint)
         {
             Enemy enemy = _enemyPool.Get();
-            enemy.Initialize(type, startPosition, path, corePos);
+            enemy.Initialize(type, startPosition, path, corePos, corePoint);
             _enemies.Add(enemy);
             _allEntities.Add(enemy);
         }
 
-        public void SpawnProjectile(Vector2 position, Enemy target)
+        private void RecalculateAllPaths()
+        {
+            foreach (var enemy in _enemies)
+            {
+                if (enemy.IsActive && !enemy.ReachedCore)
+                {
+                    var newPath = _gridManager.FindPath(enemy.GetCurrentGridPosition(), enemy.CorePoint);
+                    if (newPath != null)
+                    {
+                        enemy.UpdatePath(newPath);
+                    }
+                }
+            }
+        }
+
+        public void SpawnProjectile(Vector2 position, Enemy target, NodeSpecialization spec)
         {
             Projectile projectile = _projectilePool.Get();
-            projectile.Initialize(position, target);
+            projectile.Initialize(position, target, spec);
             _projectiles.Add(projectile);
             _allEntities.Add(projectile);
         }
@@ -83,9 +105,10 @@ namespace TacticalDefenseGame.Managers
         public IReadOnlyList<Enemy> ActiveEnemies => _enemies;
         public IReadOnlyList<Node> ActiveNodes => _nodes;
 
-        public int Update(GameTime gameTime)
+        public int Update(GameTime gameTime, Point spawn, Point core)
         {
             int reachedCoreCount = 0;
+            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
             // 1. Unified Update Loop
             for (int i = _allEntities.Count - 1; i >= 0; i--)
@@ -95,6 +118,14 @@ namespace TacticalDefenseGame.Managers
 
                 if (entity is Enemy enemy)
                 {
+                    // Apply Corrosive Damage
+                    var cell = _gridManager.GetCell(enemy.GetCurrentGridPosition().X, enemy.GetCurrentGridPosition().Y);
+                    if (cell != null && cell.Type == CellType.Corrosive)
+                    {
+                        enemy.Health -= 5f * dt; // 5 damage per second
+                        if (enemy.Health <= 0) enemy.IsActive = false;
+                    }
+
                     if (enemy.ReachedCore)
                     {
                         reachedCoreCount++;
@@ -111,10 +142,77 @@ namespace TacticalDefenseGame.Managers
                     _projectiles.Remove(projectile);
                     _allEntities.RemoveAt(i);
                 }
-                else if (entity is Node node && node.CanFire())
+                else if (entity is Node node)
                 {
+                    // Handle Node Death
+                    if (!node.IsActive)
+                    {
+                        _gridManager.RemoveNode(node.GridPosition.X, node.GridPosition.Y, spawn, core);
+                        continue;
+                    }
+
+                    // Check for Volcanic heat penalty
+                    float heatMult = 1.0f;
+                    var cell = _gridManager.GetCell(node.GridPosition.X, node.GridPosition.Y);
+                    if (cell != null && cell.Type == CellType.Volcanic) heatMult = 1.5f;
+
+                    // Continuous Aiming
                     var target = node.FindTarget(_enemies);
-                    if (target != null) SpawnProjectile(node.Position, target);
+                    node.AimAt(target, dt);
+
+                    if (node.CanFire(heatMult))
+                    {
+                        if (target != null)
+                        {
+                            SpawnProjectile(node.Position, target, node.Specialization);
+                            node.AddExperience(10f); // Award XP
+                        }
+                    }
+                }
+            }
+
+            // 2. Execute Advanced Enemy Abilities
+            foreach (var enemy in _enemies)
+            {
+                if (!enemy.IsActive) continue;
+
+                if (enemy.Type == EnemyType.Support)
+                {
+                    if (enemy.CanUseAbility())
+                    {
+                        foreach (var other in _enemies)
+                        {
+                            if (other.IsActive && Vector2.Distance(enemy.Position, other.Position) <= enemy.AbilityRange)
+                            {
+                                other.Health = MathHelper.Min(other.MaxHealth, other.Health + enemy.AbilityPower);
+                            }
+                        }
+                    }
+                }
+                else if (enemy.Type == EnemyType.Striker)
+                {
+                    enemy.IsAttacking = false;
+                    Node targetNode = null;
+                    float minDist = enemy.AbilityRange;
+
+                    foreach (var node in _nodes)
+                    {
+                        float dist = Vector2.Distance(enemy.Position, node.Position);
+                        if (dist <= minDist)
+                        {
+                            minDist = dist;
+                            targetNode = node;
+                        }
+                    }
+
+                    if (targetNode != null)
+                    {
+                        enemy.IsAttacking = true;
+                        if (enemy.CanUseAbility())
+                        {
+                            targetNode.TakeDamage(enemy.AbilityPower);
+                        }
+                    }
                 }
             }
 
@@ -123,6 +221,10 @@ namespace TacticalDefenseGame.Managers
 
         private void ReturnEnemy(Enemy enemy)
         {
+            if (!enemy.ReachedCore)
+            {
+                _resourceManager.AddScrap(enemy.ScrapValue);
+            }
             _enemyPool.Return(enemy);
             _enemies.Remove(enemy);
             _allEntities.Remove(enemy);

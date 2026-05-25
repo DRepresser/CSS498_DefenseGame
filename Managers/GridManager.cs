@@ -26,13 +26,54 @@ namespace TacticalDefenseGame.Managers
         public GridManager()
         {
             _grid = new Cell[GridSize, GridSize];
+            Random rng = new Random();
+
             for (int x = 0; x < GridSize; x++)
             {
                 for (int y = 0; y < GridSize; y++)
                 {
                     _grid[x, y] = new Cell(x, y);
+
+                    // Randomly assign hazards (excluding spawn/core rows roughly)
+                    if (x > 1 && x < GridSize - 2)
+                    {
+                        double roll = rng.NextDouble();
+                        if (roll < 0.05) 
+                        {
+                            _grid[x, y].Type = CellType.Obstacle;
+                            _grid[x, y].IsWalkable = false;
+                        }
+                        else if (roll < 0.12) _grid[x, y].Type = CellType.Volcanic;
+                        else if (roll < 0.20) _grid[x, y].Type = CellType.Corrosive;
+                    }
                 }
             }
+        }
+
+        public (Point spawn, Point core) GenerateRandomPoints()
+        {
+            Random rng = new Random();
+            Point spawn, core;
+            List<Point> path = null;
+
+            int attempts = 0;
+            do
+            {
+                // Spawn on left side, Core on right side
+                spawn = new Point(0, rng.Next(0, GridSize));
+                core = new Point(GridSize - 1, rng.Next(0, GridSize));
+
+                // Clear obstacles at spawn/core
+                GetCell(spawn.X, spawn.Y).Type = CellType.Standard;
+                GetCell(spawn.X, spawn.Y).IsWalkable = true;
+                GetCell(core.X, core.Y).Type = CellType.Standard;
+                GetCell(core.X, core.Y).IsWalkable = true;
+
+                path = FindPath(spawn, core);
+                attempts++;
+            } while (path == null && attempts < 100);
+
+            return (spawn, core);
         }
 
         public void Update(GameTime gameTime)
@@ -82,6 +123,11 @@ namespace TacticalDefenseGame.Managers
                     if (neighborCell == null || !neighborCell.IsWalkable) continue;
 
                     int newCostToNeighbor = currentNode.G + 10;
+                    
+                    // Pathfinding Cost Penalty for Hazards? 
+                    // Let's make enemies prefer not walking on Corrosive if possible
+                    if (neighborCell.Type == CellType.Corrosive) newCostToNeighbor += 20;
+
                     var neighborNode = new PathNode(neighborPos, newCostToNeighbor, GetDistance(neighborPos, end), currentNode);
                     openSet.Enqueue(neighborNode);
                 }
@@ -145,12 +191,22 @@ namespace TacticalDefenseGame.Managers
             }
         }
 
-        public bool CanPlaceNode(int x, int y, Point spawn, Point core)
+        public bool CanPlaceNode(int x, int y, Point spawn, Point core, IEnumerable<Enemy> activeEnemies)
         {
             if (IsPathLocked) return false;
 
+            // Restricted Locations: Cannot place on Spawn or Core
+            if (new Point(x, y) == spawn || new Point(x, y) == core) return false;
+
             var cell = GetCell(x, y);
             if (cell == null || !cell.IsWalkable || cell.OccupyingNode != null) return false;
+
+            // Check if any enemy is currently in this cell
+            foreach (var enemy in activeEnemies)
+            {
+                if (enemy.IsActive && enemy.GetCurrentGridPosition() == new Point(x, y))
+                    return false;
+            }
 
             // Temporarily block and check path
             cell.IsWalkable = false;
@@ -160,14 +216,14 @@ namespace TacticalDefenseGame.Managers
             return path != null;
         }
 
-        public void PlaceNode(int x, int y, Node node)
+        public void PlaceNode(int x, int y, Node node, Point core)
         {
             var cell = GetCell(x, y);
             if (cell != null)
             {
                 cell.IsWalkable = false;
                 cell.OccupyingNode = node;
-                UpdateAllSynergies();
+                UpdateAllSynergies(core);
                 NodePlaced?.Invoke(node);
             }
         }
@@ -184,7 +240,7 @@ namespace TacticalDefenseGame.Managers
                 
                 cell.IsWalkable = true;
                 cell.OccupyingNode = null;
-                UpdateAllSynergies();
+                UpdateAllSynergies(core);
 
                 var newPath = FindPath(spawn, core);
 
@@ -198,8 +254,48 @@ namespace TacticalDefenseGame.Managers
             }
         }
 
-        public void UpdateAllSynergies()
+        public void UpdateAllSynergies(Point core)
         {
+            // 1. Reset all power statuses
+            for (int x = 0; x < GridSize; x++)
+            {
+                for (int y = 0; y < GridSize; y++)
+                {
+                    if (_grid[x, y].OccupyingNode != null)
+                        _grid[x, y].OccupyingNode.IsPowered = false;
+                }
+            }
+
+            // 2. BFS from Core to find powered nodes
+            Queue<Point> queue = new Queue<Point>();
+            HashSet<Point> visited = new HashSet<Point>();
+            
+            // Start BFS from nodes adjacent to the core
+            foreach (var neighbor in GetNeighbors(core))
+            {
+                if (_grid[neighbor.X, neighbor.Y].OccupyingNode != null)
+                {
+                    queue.Enqueue(neighbor);
+                    visited.Add(neighbor);
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                Point curr = queue.Dequeue();
+                _grid[curr.X, curr.Y].OccupyingNode.IsPowered = true;
+
+                foreach (var neighbor in GetNeighbors(curr))
+                {
+                    if (!visited.Contains(neighbor) && _grid[neighbor.X, neighbor.Y].OccupyingNode != null)
+                    {
+                        visited.Add(neighbor);
+                        queue.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            // 3. Calculate synergy bonuses
             for (int x = 0; x < GridSize; x++)
             {
                 for (int y = 0; y < GridSize; y++)
@@ -233,9 +329,17 @@ namespace TacticalDefenseGame.Managers
                 for (int y = 0; y < GridSize; y++)
                 {
                     Rectangle rect = new Rectangle(x * CellSize, y * CellSize, CellSize, CellSize);
-                    Color cellColor = _grid[x, y].IsWalkable ? 
-                        ((x + y) % 2 == 0 ? Color.DarkSlateGray : Color.SlateGray) : 
-                        Color.DarkRed;
+                    Cell cell = _grid[x, y];
+                    
+                    Color cellColor = cell.Type switch
+                    {
+                        CellType.Obstacle => Color.Black,
+                        CellType.Volcanic => Color.OrangeRed * 0.4f,
+                        CellType.Corrosive => Color.DarkGreen * 0.4f,
+                        _ => cell.IsWalkable ? 
+                            ((x + y) % 2 == 0 ? Color.DarkSlateGray : Color.SlateGray) : 
+                            Color.DarkRed
+                    };
                     
                     spriteBatch.Draw(pixelTexture, rect, cellColor);
                     DrawBorder(spriteBatch, pixelTexture, rect, 1, Color.Black * 0.5f);
@@ -254,7 +358,7 @@ namespace TacticalDefenseGame.Managers
             if (focusedNode != null)
             {
                 float effectiveRange = focusedNode.Range + focusedNode.SynergyRangeBonus;
-                DrawRange(spriteBatch, pixelTexture, focusedNode.Position, effectiveRange, Color.Cyan * 0.2f);
+                DrawRange(spriteBatch, pixelTexture, focusedNode.Position, effectiveRange, Color.Cyan * 0.2f, focusedNode.Facing);
             }
 
             // 3. Draw Enemy Danger Paths
@@ -274,9 +378,18 @@ namespace TacticalDefenseGame.Managers
             }
         }
 
-        private void DrawRange(SpriteBatch spriteBatch, Texture2D pixel, Vector2 center, float range, Color color)
+        private void DrawRange(SpriteBatch spriteBatch, Texture2D pixel, Vector2 center, float range, Color color, Direction facing)
         {
-            // Highlight cells that are partially or fully within range
+            float facingAngle = facing switch
+            {
+                Direction.Up => -MathHelper.PiOver2,
+                Direction.Right => 0,
+                Direction.Down => MathHelper.PiOver2,
+                Direction.Left => MathHelper.Pi,
+                _ => 0
+            };
+
+            // Highlight cells that are partially or fully within range AND sector
             int minX = (int)Math.Max(0, (center.X - range) / CellSize);
             int maxX = (int)Math.Min(GridSize - 1, (center.X + range) / CellSize);
             int minY = (int)Math.Max(0, (center.Y - range) / CellSize);
@@ -287,9 +400,18 @@ namespace TacticalDefenseGame.Managers
                 for (int y = minY; y <= maxY; y++)
                 {
                     Vector2 cellCenter = new Vector2(x * CellSize + CellSize / 2, y * CellSize + CellSize / 2);
-                    if (Vector2.Distance(center, cellCenter) <= range)
+                    float dist = Vector2.Distance(center, cellCenter);
+                    if (dist <= range)
                     {
-                        spriteBatch.Draw(pixel, new Rectangle(x * CellSize, y * CellSize, CellSize, CellSize), color);
+                        // Sector Check
+                        Vector2 toCell = cellCenter - center;
+                        float angle = (float)Math.Atan2(toCell.Y, toCell.X);
+                        float diff = MathHelper.WrapAngle(angle - facingAngle);
+                        
+                        if (Math.Abs(diff) <= MathHelper.PiOver4) // 90 degree arc
+                        {
+                            spriteBatch.Draw(pixel, new Rectangle(x * CellSize, y * CellSize, CellSize, CellSize), color);
+                        }
                     }
                 }
             }

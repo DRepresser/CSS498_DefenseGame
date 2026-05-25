@@ -14,7 +14,7 @@ namespace TacticalDefenseGame.Managers
         private int _enemiesSpawned = 0;
         
         public bool AllWavesComplete { get; private set; } = false;
-        private const int MaxWaves = 5;
+        private const int MaxWaves = 10;
 
         public void StartNextWave()
         {
@@ -67,9 +67,11 @@ namespace TacticalDefenseGame.Managers
             
             // Determine type based on wave
             EnemyType type = EnemyType.Standard;
-            if (CurrentWave >= 2 && _enemiesSpawned % 4 == 0) type = EnemyType.Speedster;
-            if (CurrentWave >= 3 && _enemiesSpawned % 6 == 0) type = EnemyType.Tank;
-            if (CurrentWave >= 4 && _enemiesSpawned % 8 == 0) type = EnemyType.Phaser;
+            if (CurrentWave >= 2 && _enemiesSpawned % 5 == 0) type = EnemyType.Speedster;
+            if (CurrentWave >= 3 && _enemiesSpawned % 7 == 0) type = EnemyType.Tank;
+            if (CurrentWave >= 4 && _enemiesSpawned % 9 == 0) type = EnemyType.Phaser;
+            if (CurrentWave >= 3 && _enemiesSpawned % 11 == 0) type = EnemyType.Striker;
+            if (CurrentWave >= 4 && _enemiesSpawned % 13 == 0) type = EnemyType.Support;
 
             var path = gridManager.FindPath(spawnPoint, corePoint);
             Vector2 startPos = new Vector2(
@@ -81,7 +83,7 @@ namespace TacticalDefenseGame.Managers
                 corePoint.Y * GridManager.CellSize + GridManager.CellSize / 2
             );
 
-            entityManager.SpawnEnemy(type, startPos, path, corePos);
+            entityManager.SpawnEnemy(type, startPos, path, corePos, corePoint);
         }
     }
 }

@@ -1,0 +1,60 @@
+<svg width="226" height="226" viewBox="0 0 226 226" xmlns="http://www.w3.org/2000/svg">
+  <!-- Wall -->
+  <rect x="43" y="43" width="140" height="140" rx="4" fill="#1E0808" stroke="#FF4444" stroke-width="1.4"/>
+  <rect x="52" y="52" width="122" height="122" rx="3" fill="none" stroke="#3A1010" stroke-width="0.8"/>
+  <!-- Corner turrets NW -->
+  <rect x="37" y="37" width="30" height="30" rx="2" fill="#180606" stroke="#FF4444" stroke-width="1"/>
+  <circle cx="52" cy="52" r="8" fill="#100404" stroke="#FF4444" stroke-width="0.8"/>
+  <circle cx="52" cy="52" r="3" fill="#FF4444" opacity="0.5"/>
+  <!-- NE -->
+  <rect x="159" y="37" width="30" height="30" rx="2" fill="#180606" stroke="#FF4444" stroke-width="1"/>
+  <circle cx="174" cy="52" r="8" fill="#100404" stroke="#FF4444" stroke-width="0.8"/>
+  <circle cx="174" cy="52" r="3" fill="#FF4444" opacity="0.5"/>
+  <!-- SW -->
+  <rect x="37" y="159" width="30" height="30" rx="2" fill="#180606" stroke="#FF4444" stroke-width="1"/>
+  <circle cx="52" cy="174" r="8" fill="#100404" stroke="#FF4444" stroke-width="0.8"/>
+  <circle cx="52" cy="174" r="3" fill="#FF4444" opacity="0.5"/>
+  <!-- SE -->
+  <rect x="159" y="159" width="30" height="30" rx="2" fill="#180606" stroke="#FF4444" stroke-width="1"/>
+  <circle cx="174" cy="174" r="8" fill="#100404" stroke="#FF4444" stroke-width="0.8"/>
+  <circle cx="174" cy="174" r="3" fill="#FF4444" opacity="0.5"/>
+  <!-- Courtyard -->
+  <rect x="73" y="73" width="80" height="80" rx="3" fill="#0C0404" stroke="#3A1010" stroke-width="0.8"/>
+  <!-- Platform -->
+  <circle cx="113" cy="113" r="26" fill="#180606" stroke="#FF4444" stroke-width="1.2"/>
+  <circle cx="113" cy="113" r="18" fill="#0C0404" stroke="#FF6666" stroke-width="0.7"/>
+  <polygon points="113,94 122,103 122,123 113,132 104,123 104,103" fill="#1A0808" stroke="#FF4444" stroke-width="1"/>
+  <!-- Heat sink fins left -->
+  <rect x="99" y="62" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="99" y="70" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="99" y="78" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="99" y="86" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <!-- Heat sink fins right -->
+  <rect x="121" y="62" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="121" y="70" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="121" y="78" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <rect x="121" y="86" width="6" height="3" rx="1" fill="#3A1010" stroke="#FF4444" stroke-width="0.5"/>
+  <!-- Barrel body -->
+  <rect x="110" y="55" width="6" height="44" rx="2" fill="#200808" stroke="#FF4444" stroke-width="1"/>
+  <rect x="112" y="57" width="2" height="40" rx="1" fill="#FF4444" opacity="0.35"/>
+  <!-- Charge rings -->
+  <rect x="108" y="66" width="10" height="3" rx="1" fill="#2A0A0A" stroke="#FF4444" stroke-width="0.6"/>
+  <rect x="108" y="76" width="10" height="3" rx="1" fill="#2A0A0A" stroke="#FF4444" stroke-width="0.6"/>
+  <rect x="108" y="86" width="10" height="3" rx="1" fill="#2A0A0A" stroke="#FF4444" stroke-width="0.6"/>
+  <!-- Emitter muzzle -->
+  <rect x="109" y="47" width="8" height="11" rx="2" fill="#100404" stroke="#FF4444" stroke-width="1"/>
+  <circle cx="113" cy="50" r="3" fill="#FF2222" opacity="0.8"/>
+  <circle cx="113" cy="50" r="1.5" fill="#FFAAAA" opacity="0.9"/>
+  <!-- Laser beam -->
+  <line x1="113" y1="47" x2="113" y2="16" stroke="#FF4444" stroke-width="1.5" opacity="0.6"/>
+  <line x1="113" y1="47" x2="113" y2="16" stroke="#FFAAAA" stroke-width="0.5" opacity="0.5"/>
+  <!-- Heat distortion -->
+  <line x1="112" y1="38" x2="109" y2="22" stroke="#FF4444" stroke-width="0.4" opacity="0.2"/>
+  <line x1="114" y1="38" x2="117" y2="22" stroke="#FF4444" stroke-width="0.4" opacity="0.2"/>
+  <!-- Beam tip -->
+  <circle cx="113" cy="15" r="3" fill="#FF4444" opacity="0.5"/>
+  <circle cx="113" cy="15" r="1.5" fill="#FFDDDD" opacity="0.9"/>
+  <!-- Core -->
+  <circle cx="113" cy="118" r="5" fill="#FF4444" opacity="0.35"/>
+  <circle cx="113" cy="118" r="2" fill="#FFAAAA" opacity="0.85"/>
+</svg>

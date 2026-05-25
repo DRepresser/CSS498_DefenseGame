@@ -19,8 +19,17 @@ namespace TacticalDefenseGame.Managers
             };
         }
 
-        public void RecordEnergySpent(float amount) => _currentWave.EnergySpent += amount;
-        public void RecordDamageTaken(float amount) => _currentWave.DamageTaken += amount;
+        public void RecordEnergySpent(float amount)
+        {
+            if (_currentWave != null)
+                _currentWave.EnergySpent += amount;
+        }
+
+        public void RecordDamageTaken(float amount)
+        {
+            if (_currentWave != null)
+                _currentWave.DamageTaken += amount;
+        }
         
         public void EndWave(float coreHpRemaining)
         {

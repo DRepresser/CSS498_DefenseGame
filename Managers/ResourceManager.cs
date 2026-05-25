@@ -5,6 +5,7 @@ namespace TacticalDefenseGame.Managers
     public class ResourceManager
     {
         public float Energy { get; private set; }
+        public float Scrap { get; private set; } = 0f;
         public float CoreHealth { get; private set; } = 100f;
         public float EnergyRegenRate { get; set; } = 5f;
 
@@ -23,6 +24,21 @@ namespace TacticalDefenseGame.Managers
             if (Energy >= amount)
             {
                 Energy -= amount;
+                return true;
+            }
+            return false;
+        }
+
+        public void AddScrap(float amount)
+        {
+            Scrap += amount;
+        }
+
+        public bool TrySpendScrap(float amount)
+        {
+            if (Scrap >= amount)
+            {
+                Scrap -= amount;
                 return true;
             }
             return false;

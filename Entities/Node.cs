@@ -17,7 +17,11 @@ namespace TacticalDefenseGame.Entities
         public float MaxStamina = 100f;
         public float CurrentStamina;
         public float BaseCoolingRate = 10f; // R_base
-        
+
+        // Health & Durability
+        public float MaxHealth = 100f;
+        public float Health;
+
         // Synergy Specializations
         public float SynergyBonus = 0f; // beta_synergy (Stamina Regen)
         public float SynergyRangeBonus = 0f; // Range boost
@@ -39,12 +43,20 @@ namespace TacticalDefenseGame.Entities
         public float OverheatCooldown = 3.0f; // T_cooldown
         private float _overheatTimer = 0f;
 
+        // Upgrade & Specialization
+        public int Rank = 1;
+        public float Experience = 0f;
+        public float ExperienceToNextRank = 100f;
+        public NodeSpecialization Specialization = NodeSpecialization.None;
+        public bool IsPowered = true;
+
         // State Effects
         private List<SteamParticle> _particles = new();
         private float _particleTimer = 0f;
         private Random _rng = new Random();
 
         public Direction Facing = Direction.Right;
+        public float TurretAngle;
         public Point GridPosition;
 
         public Node() { IsActive = false; }
@@ -57,6 +69,7 @@ namespace TacticalDefenseGame.Entities
                 gridPos.Y * GridManager.CellSize + GridManager.CellSize / 2
             );
             Facing = facing;
+            TurretAngle = GetFacingAngle();
             Color = Color.White;
             CurrentStamina = MaxStamina;
             HeatModifier = 1.0f;
@@ -67,7 +80,49 @@ namespace TacticalDefenseGame.Entities
             SynergyBonus = 0;
             SynergyRangeBonus = 0;
             SynergyCostMultiplier = 1.0f;
+            Rank = 1;
+            Experience = 0;
+            Specialization = NodeSpecialization.None;
+            Health = MaxHealth;
             IsActive = true;
+        }
+
+        public void AimAt(Enemy target, float dt)
+        {
+            float targetAngle = GetFacingAngle();
+            if (target != null)
+            {
+                Vector2 dir = target.Position - Position;
+                targetAngle = (float)Math.Atan2(dir.Y, dir.X);
+            }
+
+            // Smoothly rotate towards target (10 rad/s)
+            float diff = MathHelper.WrapAngle(targetAngle - TurretAngle);
+            float step = 10f * dt;
+            
+            if (Math.Abs(diff) < step) TurretAngle = targetAngle;
+            else TurretAngle += Math.Sign(diff) * step;
+        }
+
+        public void TakeDamage(float amount)
+        {
+            Health -= amount;
+            if (Health <= 0)
+            {
+                Health = 0;
+                IsActive = false;
+                // Note: The GridManager should handle removing this node if it dies
+            }
+        }
+
+        public void AddExperience(float amount)
+        {
+            Experience += amount;
+            if (Rank < 2 && Experience >= ExperienceToNextRank)
+            {
+                Rank = 2;
+                // At rank 2, node can be specialized
+            }
         }
 
         public override void Update(GameTime gameTime)
@@ -111,7 +166,8 @@ namespace TacticalDefenseGame.Entities
                 }
 
                 // Regenerate Stamina: (R_base + beta_synergy) * soak * t
-                CurrentStamina += (BaseCoolingRate + SynergyBonus) * soakMultiplier * dt;
+                float powerMult = IsPowered ? 1.0f : 0.2f; // 80% penalty if not powered
+                CurrentStamina += (BaseCoolingRate + SynergyBonus) * soakMultiplier * powerMult * dt;
                 if (CurrentStamina > MaxStamina) CurrentStamina = MaxStamina;
 
                 // Decay Heat Modifier
@@ -132,7 +188,7 @@ namespace TacticalDefenseGame.Entities
             }
         }
 
-        public bool CanFire()
+        public bool CanFire(float heatMult = 1.0f)
         {
             if (IsOverheated) return false;
 
@@ -145,7 +201,7 @@ namespace TacticalDefenseGame.Entities
                 if (CurrentStamina >= cost)
                 {
                     CurrentStamina -= cost;
-                    HeatModifier += HeatIncrement;
+                    HeatModifier += HeatIncrement * heatMult;
                     _fireTimer = 0;
                     return true;
                 }
@@ -209,47 +265,105 @@ namespace TacticalDefenseGame.Entities
 
         public override void Draw(SpriteBatch spriteBatch, Texture2D pixel)
         {
-            // Draw Steam Particles
+            float angle = TurretAngle;
+            Vector2 directionVec = new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle));
+            
+            // 1. Draw "Wall" (Base Rect)
+            Color wallColor = Specialization switch
+            {
+                NodeSpecialization.Cryo => new Color(9, 24, 42),
+                NodeSpecialization.ArmorPiercing => new Color(30, 8, 8),
+                _ => new Color(42, 42, 42)
+            };
+            Color strokeColor = Specialization switch
+            {
+                NodeSpecialization.Cryo => new Color(77, 217, 255),
+                NodeSpecialization.ArmorPiercing => new Color(255, 68, 68),
+                _ => new Color(85, 85, 85)
+            };
+
+            Rectangle baseRect = new Rectangle((int)Position.X - 18, (int)Position.Y - 18, 36, 36);
+            spriteBatch.Draw(pixel, baseRect, wallColor);
+            DrawBorder(spriteBatch, pixel, baseRect, 1, strokeColor);
+
+            // 2. Draw Corner Turrets / Details
+            int detSize = 8;
+            spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 18, (int)Position.Y - 18, detSize, detSize), strokeColor * 0.5f);
+            spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 18 - detSize, (int)Position.Y - 18, detSize, detSize), strokeColor * 0.5f);
+            spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 18, (int)Position.Y + 18 - detSize, detSize, detSize), strokeColor * 0.5f);
+            spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 18 - detSize, (int)Position.Y + 18 - detSize, detSize, detSize), strokeColor * 0.5f);
+
+            // 3. Draw Platform (Inner Circle)
+            DrawRadialBar(spriteBatch, pixel, Position, 12f, 1.0f, wallColor * 1.5f);
+            DrawBorder(spriteBatch, pixel, new Rectangle((int)Position.X - 10, (int)Position.Y - 10, 20, 20), 1, strokeColor * 0.3f);
+
+            // 4. Draw Barrel (Matches TurretAngle)
+            Vector2 barrelEnd = Position + directionVec * 20;
+            Color barrelColor = Specialization switch
+            {
+                NodeSpecialization.Cryo => new Color(12, 30, 52),
+                NodeSpecialization.ArmorPiercing => new Color(32, 8, 8),
+                _ => new Color(48, 48, 48)
+            };
+            DrawLine(spriteBatch, pixel, Position, barrelEnd, 6, barrelColor);
+            DrawLine(spriteBatch, pixel, Position, barrelEnd, 2, strokeColor * 0.5f); // Barrel highlight
+
+            // 5. Specialized Details
+            if (Specialization == NodeSpecialization.Cryo)
+            {
+                // Ice Spikes / Glow
+                DrawRadialBar(spriteBatch, pixel, barrelEnd, 4f, 1.0f, new Color(128, 238, 255));
+            }
+            else if (Specialization == NodeSpecialization.ArmorPiercing)
+            {
+                // Heat Sinks / Emitter
+                Vector2 perp = new Vector2(-directionVec.Y, directionVec.X);
+                DrawLine(spriteBatch, pixel, Position + directionVec * 10 + perp * 6, Position + directionVec * 10 - perp * 6, 2, strokeColor);
+                DrawRadialBar(spriteBatch, pixel, barrelEnd, 3f, 1.0f, Color.Red);
+            }
+
+            // 6. Draw Steam Particles
             foreach (var p in _particles)
             {
                 float alpha = 1.0f - (p.Life / p.MaxLife);
                 spriteBatch.Draw(pixel, new Rectangle((int)(Position.X + p.Offset.X), (int)(Position.Y + p.Offset.Y), 4, 4), Color.White * 0.6f * alpha);
             }
 
-            // Draw Radial Stamina Ring (Background)
-            DrawRadialBar(spriteBatch, pixel, Position, 18f, 1.0f, Color.Black * 0.3f);
-            
-            // Draw Radial Stamina Ring (Fill)
+            // 7. Draw Radial Stamina Ring
             float staminaPercent = CurrentStamina / MaxStamina;
             Color barColor = IsOverheated ? Color.Orange : Color.Cyan;
             if (HeatModifier > HeatSoakThreshold) barColor = Color.Lerp(barColor, Color.Yellow, (HeatModifier - HeatSoakThreshold) / 2f);
-            DrawRadialBar(spriteBatch, pixel, Position, 18f, staminaPercent, barColor);
+            DrawRadialBar(spriteBatch, pixel, Position, 22f, staminaPercent, barColor * 0.8f);
 
-            // Draw Node base
-            Rectangle rect = new Rectangle((int)Position.X - 15, (int)Position.Y - 15, 30, 30);
-            Color nodeColor = IsOverheated ? Color.Red : Color.DarkGray;
-            spriteBatch.Draw(pixel, rect, nodeColor);
+            // 8. XP Bar / Indicators
+            if (Specialization == NodeSpecialization.None && Rank < 2)
+            {
+                float xpPercent = Experience / ExperienceToNextRank;
+                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y + 22, 30, 4), Color.Black * 0.5f);
+                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y + 22, (int)(30 * xpPercent), 4), Color.White * 0.8f);
+            }
 
-            // Draw "Turret" indicator for facing
-            Vector2 directionVec = new Vector2((float)Math.Cos(GetFacingAngle()), (float)Math.Sin(GetFacingAngle()));
-            Vector2 turretEnd = Position + directionVec * 15;
-            
-            DrawLine(spriteBatch, pixel, Position, turretEnd, 3, IsOverheated ? Color.Gray : Color.Yellow);
-            
-            // Draw Overheat Countdown
+            if (Rank >= 2)
+                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 4, (int)Position.Y - 26, 8, 8), Color.Gold);
+
             if (IsOverheated)
             {
                 int secondsLeft = (int)Math.Ceiling(_overheatTimer);
-                DrawDigit(spriteBatch, pixel, secondsLeft, Position - new Vector2(4, 30), 3, Color.Red);
+                DrawDigit(spriteBatch, pixel, secondsLeft, Position - new Vector2(4, 34), 3, Color.Red);
             }
 
-            // Draw Synergy Indicators (small dots based on levels)
-            if (SynergyBonus > 0) // Level 1: Regen
-                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 6, (int)Position.Y - 6, 4, 4), Color.Lime);
-            if (SynergyRangeBonus > 0) // Level 2: Range
-                spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 2, (int)Position.Y - 6, 4, 4), Color.Cyan);
-            if (SynergyCostMultiplier < 1.0f) // Level 3: Efficiency
-                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 2, (int)Position.Y + 2, 4, 4), Color.Gold);
+            // Synergy / Power Indicators
+            if (SynergyBonus > 0) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 12, (int)Position.Y - 12, 4, 4), Color.Lime);
+            if (SynergyRangeBonus > 0) spriteBatch.Draw(pixel, new Rectangle((int)Position.X + 8, (int)Position.Y - 12, 4, 4), Color.Cyan);
+            if (SynergyCostMultiplier < 1.0f) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 12, (int)Position.Y + 8, 4, 4), Color.Gold);
+            if (!IsPowered) spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 2, (int)Position.Y - 2, 4, 4), Color.Red);
+
+            // 9. Node Health Bar
+            if (Health < MaxHealth)
+            {
+                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y - 20, 30, 4), Color.Black * 0.5f);
+                spriteBatch.Draw(pixel, new Rectangle((int)Position.X - 15, (int)Position.Y - 20, (int)(30 * (Health / MaxHealth)), 4), Color.LimeGreen);
+            }
         }
 
         private void DrawRadialBar(SpriteBatch spriteBatch, Texture2D pixel, Vector2 center, float radius, float percent, Color color)
@@ -297,6 +411,14 @@ namespace TacticalDefenseGame.Entities
             spriteBatch.Draw(pixel, 
                 new Rectangle((int)start.X, (int)start.Y, (int)edge.Length(), thickness),
                 null, color, angle, new Vector2(0, 0.5f), SpriteEffects.None, 0);
+        }
+
+        private void DrawBorder(SpriteBatch spriteBatch, Texture2D pixel, Rectangle rect, int thickness, Color color)
+        {
+            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, thickness), color);
+            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y + rect.Height - thickness, rect.Width, thickness), color);
+            spriteBatch.Draw(pixel, new Rectangle(rect.X, rect.Y, thickness, rect.Height), color);
+            spriteBatch.Draw(pixel, new Rectangle(rect.X + rect.Width - thickness, rect.Y, thickness, rect.Height), color);
         }
     }
 
